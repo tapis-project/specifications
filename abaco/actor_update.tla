@@ -36,6 +36,12 @@ AllImageVersions == ImageVersion \cup {"-"}
  Messages == [type : {"DELETE","EXECUTE", "UPDATE"},  actor: Actors, image: ImageVersion]
  
 
+(*
+***********************************
+Invariants and Temporal Properties
+***********************************
+*)
+
 TypeInvariant == 
   /\ actorStatus \in [Actors -> { "SUBMITTED", "READY", "ERROR", "SHUTTING_DOWN","UPDATING_IMAGE","DELETED"}] 
   /\ msg_queues \in [Actors -> Seq(Messages)] \* multiple queues
@@ -45,13 +51,13 @@ TypeInvariant ==
   /\ currentImageVersion \in [Actors -> AllImageVersions]
   /\ currentImageVersionForWorkers  \in [Workers -> AllImageVersions]
  
+  \* An invariant: ensures all the workers of an actor will eventually use the same Image version. 
+  AllWorkersOfActorUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorkers[a]:
+    currentImageVersionForWorkers[x] = currentImageVersionForWorkers[y]  
   
   \* A temporal property: ensures the msq_queue is eventually 0 from now on.
   AllMessagesProcessed == <>[](\A a \in Actors: Len(msg_queues[a]) = 0)    
   
-  \* A temporal property: ensures all the workers of an actor will eventually use the same Image version. 
-  AllWorkersOfActorUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorkers[a]:
-    currentImageVersionForWorkers[x] = currentImageVersionForWorkers[y]  
 
 Init == 
     /\ actorStatus = [a \in Actors |-> "READY"] 
@@ -66,21 +72,33 @@ Init ==
     /\ currentImageVersionForWorkers  = [w \in Workers |-> "-"]
     
     
-    
+(*    
+*************************************
+HTTP Requests/Synchronous Processing
+*************************************
+*)
+
 ActorExecuteRecv(msg, a) ==    
+(*
+Represents the Abaco platform receiving an HTTP request to the POST /actors/{id}/messages endpoint (i.e., to execute an actor)
+*)
     /\  actorStatus[a]= "READY" \/ actorStatus[a]= "UPDATING_IMAGE"
     /\  msg.type = "EXECUTE"
     /\  msg.actor = a
     /\  tmsg < MaxMessage
     /\  Len(msg_queues[a]) <  MaxQueueSize
-    /\  msg_queues'= [msg_queues EXCEPT ![a] = Append(msg_queues[a],msg)]
+    /\  msg_queues'= [msg_queues EXCEPT ![a] = Append(msg_queues[a],msg)] \* QUESTION: do we want to queue this message? 
     /\  tmsg' = tmsg + 1
     /\  currentImageVersion'=[currentImageVersion EXCEPT ![a]= IF currentImageVersion[a]="-" THEN msg.image
                                                                                           ELSE currentImageVersion[a]] 
     /\  UNCHANGED<<actorStatus,workerStatus,m,totalNumWorkers, workersCreated, actorWorkers,currentImageVersionForWorkers>>   
 
  
- ActorDeleteRecv(msg,a) ==
+ActorDeleteRecv(msg,a) ==
+(*
+Represents the Abaco platform receiving an HTTP request to the DELETE /actors/{id} endpoint (i.e., to delete an actor)
+*)
+
     /\ actorStatus[a] = "READY"
     /\ msg.type = "DELETE"
     /\ msg.actor = a
@@ -91,7 +109,11 @@ ActorExecuteRecv(msg, a) ==
     /\ tmsg' = tmsg + 1
     /\ UNCHANGED<<m, workerStatus,totalNumWorkers, workersCreated, actorWorkers, currentImageVersion,currentImageVersionForWorkers>>                                                                        
  
- ActorUpdateRecv(msg, a) ==    
+ActorUpdateRecv(msg, a) ==    
+(*
+Represents the Abaco platform receiving an HTTP request to the PUT /actors/{id} endpoint (i.e., to update an actor definition)
+*)
+
     /\  actorStatus[a] = "READY"
     /\  msg.type = "UPDATE"
     /\  msg.actor = a
@@ -101,17 +123,33 @@ ActorExecuteRecv(msg, a) ==
     /\  currentImageVersion' = [currentImageVersion EXCEPT ![a] = msg.image]
     /\  tmsg' = tmsg + 1
     /\  UNCHANGED<<msg_queues,workerStatus,m,totalNumWorkers, workersCreated,actorWorkers,currentImageVersionForWorkers>>  
+
+
+(*    
+*****************************
+Asynchronous Task Processing
+*****************************
+*)
+
  
- UpdateActor(a) == 
+UpdateActor(a) == 
+(*
+Represents internal processing of an actor update request. We represent this as an independent __ because the processing happens 
+asynchronously to the original HTTP request.
+The enabling condition is the actorStatus value (UPDATING_IMAGE) which is set when receiving the HTTP request.
+*)
+
          /\ actorStatus[a] = "UPDATING_IMAGE"
          /\ actorWorkers[a] = {}
          /\ actorStatus' = [actorStatus EXCEPT ![a] = "READY"]
-         
+         \* QUESTION: this process does not change the msg_queues[a] variable, which means the UPDATE message is not consumed here.
          /\ UNCHANGED<<msg_queues,tmsg,workerStatus,m,totalNumWorkers, workersCreated,actorWorkers,currentImageVersion,currentImageVersionForWorkers>>
          
-         
-  
- DeleteWorker(w,a) ==
+           
+DeleteWorker(w,a) ==
+(*
+Represents internal processing to delete a worker.
+*)
     /\ actorStatus[a] = "SHUTTING_DOWN" \/ (actorStatus[a] = "UPDATING_IMAGE" /\ workerStatus[w].status = "IDLE")
     /\ workerStatus[w].status # "-"
     /\ w \in actorWorkers[a]
@@ -120,7 +158,11 @@ ActorExecuteRecv(msg, a) ==
     /\ UNCHANGED<<msg_queues,actorStatus,m, tmsg, totalNumWorkers, workersCreated, currentImageVersion,currentImageVersionForWorkers>>                                                  
  
  
- DeleteActor(a) ==
+DeleteActor(a) ==
+(*
+Represents internal processing to delete an actor. Similar to UpdateActor, we represent this as an indpendent __ because the processing
+happens asynchronously to the original HTTP request.
+*)
      /\ actorStatus[a] = "SHUTTING_DOWN"
      /\ actorWorkers[a] = {}
      /\ Len(msg_queues[a]) > 0
@@ -130,9 +172,11 @@ ActorExecuteRecv(msg, a) ==
      /\ UNCHANGED<<workerStatus,m, tmsg, totalNumWorkers, workersCreated,actorWorkers, currentImageVersion,currentImageVersionForWorkers>> 
  
  
-
-
 CreateWorker(w,a) ==
+(*
+Represents internal processing to create a worker.
+*)
+
     /\ Len(msg_queues[a]) >= ScaleUpThreshold
     /\ totalNumWorkers < MaxWorkers
     /\ Cardinality(actorWorkers[a]) < MaxWorkersPerActor 
@@ -147,6 +191,11 @@ CreateWorker(w,a) ==
    
 
 WorkerRecv(w,a) ==
+(*
+Represents internal processing that occurs when a worker receives an actor message (i.e., a message sent to an actor by a user.
+This __ dequeues the message an represents starting the execution. 
+*)
+
     /\ Len(msg_queues[a]) > 0  
     /\ actorStatus[a] # "SHUTTING_DOWN" 
     /\ actorStatus[a] # "UPDATING_IMAGE"
@@ -156,6 +205,12 @@ WorkerRecv(w,a) ==
     /\ UNCHANGED<<actorStatus,m, tmsg, totalNumWorkers, workersCreated,actorWorkers, currentImageVersion,currentImageVersionForWorkers>>    
 
 WorkerBusy(w,a) == 
+(*
+Represents internal processing that occurs when an actor execution initially completes.
+This __ changes the worker's status to FINISHED, which represents a state between BUSY and IDLE. The worker still needs to 
+finalize the execution before being returned to the pool;
+*)
+
     /\ actorStatus[a] # "SHUTTING_DOWN"
     /\ workerStatus[w] = [actor|->a, status|->"BUSY"]  
     /\ m' = m + 1  
@@ -163,6 +218,11 @@ WorkerBusy(w,a) ==
     /\ UNCHANGED<<msg_queues,actorStatus,tmsg, totalNumWorkers, workersCreated,actorWorkers, currentImageVersion,currentImageVersionForWorkers>>   
 
 FreeWorker(w,a) ==
+(*
+Represents internal processing that occurs when an actor execution has been finalized.
+This __ changes the worker's status to IDLE, which returns it to the pool;
+*)
+
     /\ actorStatus[a] # "SHUTTING_DOWN"
     /\ workerStatus[w] = [actor|->a, status|->"FINISHED"]
     /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"IDLE"]] \*<-- This is not ensuring worker returns to the common pool
@@ -192,5 +252,6 @@ Spec == Init /\ [][Next]_vars
 
 =============================================================================
 \* Modification History
+\* Last modified Thu Sep 10 15:36:10 CDT 2020 by jstubbs
 \* Last modified Thu Sep 10 11:01:19 CDT 2020 by spadhy
 \* Created Wed Aug 19 11:19:50 CDT 2020 by spadhy
