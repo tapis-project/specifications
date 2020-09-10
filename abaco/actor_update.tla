@@ -48,7 +48,10 @@ TypeInvariant ==
   
   \* A temporal property: ensures the msq_queue is eventually 0 from now on.
   AllMessagesProcessed == <>[](\A a \in Actors: Len(msg_queues[a]) = 0)    
-    
+  
+  \* A temporal property: ensures all the workers of an actor will eventually use the same Image version. 
+  AllWorkersOfActorUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorkers[a]:
+    currentImageVersionForWorkers[x] = currentImageVersionForWorkers[y]  
 
 Init == 
     /\ actorStatus = [a \in Actors |-> "READY"] 
@@ -189,5 +192,5 @@ Spec == Init /\ [][Next]_vars
 
 =============================================================================
 \* Modification History
-\* Last modified Fri Aug 21 10:58:45 CDT 2020 by spadhy
+\* Last modified Thu Sep 10 11:01:19 CDT 2020 by spadhy
 \* Created Wed Aug 19 11:19:50 CDT 2020 by spadhy
