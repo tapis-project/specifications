@@ -339,6 +339,9 @@ Next ==
     \/ \E a \in Actors: DeleteActor(a)
 
 Spec == Init /\ [][Next]_vars  
+
+
+FairSpec == Spec
         /\ WF_vars(\E w \in Workers, a \in Actors: CreateWorker(w,a))
         /\ WF_vars(\E w \in Workers, a \in Actors: WorkerRecv(w,a))
         /\ WF_vars(\E w \in Workers, a \in Actors: WorkerBusy(w,a))
@@ -349,8 +352,53 @@ Spec == Init /\ [][Next]_vars
         /\ WF_vars(\E w \in Workers, a \in Actors: StartDeleteWorker(w,a))
         /\ WF_vars(\E w \in Workers, a \in Actors: CompleteDeleteWorker(w,a))
 
+
+\* Inductive Invariant
+InductiveInvariant == /\ TypeInvariant
+                      /\ AllWorkersOfActorUseSameImageVersion
+
+THEOREM Init => InductiveInvariant
+<1> SUFFICES ASSUME Init
+    PROVE InductiveInvariant
+    OBVIOUS
+<1>1. TypeInvariant
+   <2>1. actorStatus \in [Actors -> { "SUBMITTED", "READY", "ERROR", "SHUTTING_DOWN","UPDATING_IMAGE","DELETED"}]
+    BY DEF Init,InductiveInvariant
+  <2>2. actor_msg_queues \in [Actors -> Seq(ActorMessages)]
+    BY DEF Init,InductiveInvariant
+  <2>3. command_queues \in [Actors -> Seq(CommandMessages)]
+    BY DEF Init,InductiveInvariant
+  <2>4. worker_command_queues \in [Workers -> Seq(WorkerMessages)]
+    BY DEF Init,InductiveInvariant
+  <2>5. workerStatus \in [Workers -> [actor:AllActors, status:WorkerState]]
+    BY DEF AllActors,WorkerState,Init,InductiveInvariant
+  <2>6. workersCreated \subseteq Workers
+    BY DEF Init,InductiveInvariant
+  <2>7. actorWorkers \in [Actors -> SUBSET Workers]
+    BY DEF Init,InductiveInvariant
+  <2>8. currentImageVersion \in [Actors -> AllImageVersions]
+    BY DEF AllImageVersions,Init,InductiveInvariant
+  <2>9. currentImageVersionForWorkers  \in [Workers -> AllImageVersions]
+    BY DEF AllImageVersions,Init,InductiveInvariant
+  <2>10. QED
+    BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8, <2>9 DEF TypeInvariant
+   
+<1>2. AllWorkersOfActorUseSameImageVersion
+  <2>1. SUFFICES ASSUME NEW a \in Actors,
+                      NEW x \in actorWorkers[a], NEW y \in actorWorkers[a]
+               PROVE  currentImageVersionForWorkers[x] = currentImageVersionForWorkers[y]
+    BY DEF AllWorkersOfActorUseSameImageVersion
+  <2>2. QED
+    BY DEF Init, InductiveInvariant, TypeInvariant
+<1>3. QED
+  BY <1>1, <1>2 DEF InductiveInvariant
+
+             
+
+
+
 =============================================================================
 \* Modification History
+\* Last modified Thu Sep 17 15:59:57 CDT 2020 by spadhy
 \* Last modified Sun Sep 13 11:00:41 CDT 2020 by jstubbs
-\* Last modified Thu Sep 10 11:01:19 CDT 2020 by spadhy
 \* Created Wed Aug 19 11:19:50 CDT 2020 by spadhy
