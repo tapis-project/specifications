@@ -1,21 +1,20 @@
 ---------------------------- MODULE abaco_current ----------------------------
 EXTENDS Naturals, FiniteSets, Sequences
 
-CONSTANTS Actors,           \* Set of Actors
-\*          Workers,          \* Set of Workers
-          MaxQueueSize,     \* Maximum queue size of the message queue.
-          MaxMessage,       \* Maximum number of HTTP requests that are sent
-          MaxWorkers,       \* Maximum number of Workers that are allowed to be created 
-          ScaleUpThreshold,  \* ScaleUpThreshold 
-          MaxWorkersPerActor, \* Maximum number of Workers per Actors
-          ImageVersion       \* list of image versions
+CONSTANTS Actors,               \* Set of Actors
+          \*MaxQueueSize,       \* Maximum queue size of the message queue.
+          MaxMessage,           \* Maximum number of HTTP requests that are sent
+          MaxWorkers,           \* Maximum number of Workers that are allowed to be created 
+          ScaleUpThreshold,     \* ScaleUpThreshold 
+          MaxWorkersPerActor,   \* Maximum number of Workers per Actors
+          ImageVersion          \* List of image versions
 
 
-VARIABLES actor_msg_queues,      \* message_queues. One queue corresponds to an actor
+VARIABLES actor_msg_queues,      \* actor's message_queues. One queue corresponds to an actor
           command_queues,        \* queues holding messages for different commands, such as update actor, delete actor, ...
           Workers,               \* Set of all Workers, defined based on the MaxWorkers constant, below.
           worker_command_queues, \* queues holding messages for specific actors such as "shutdown"
-          actorStatus,           \* set of actors
+          actorStatus,           \* actors status
           workerStatus,          \* workers status 
           m,                     \* a counter to be increment to represent work 
           tmsg,                  \* a counter to keep track for total number of mesages sent
@@ -26,19 +25,23 @@ VARIABLES actor_msg_queues,      \* message_queues. One queue corresponds to an 
           actorWorkers,          \* subset of workers for each actor
           
           currentImageVersion,   \* current image version for each actor
-          currentImageVersionForWorkers 
+          currentImageVersionForWorkers \* Imahe version used by each worker
          
           
-vars == <<actor_msg_queues, command_queues,worker_command_queues,actorStatus,workerStatus,m, tmsg, totalNumWorkers, workersCreated, actorWorkers, currentImageVersion, currentImageVersionForWorkers, currentTotActiveWorkers,Workers >>        
+vars == <<actor_msg_queues, command_queues, worker_command_queues, actorStatus, workerStatus, m, tmsg,
+          totalNumWorkers, workersCreated, actorWorkers, currentImageVersion, currentImageVersionForWorkers,
+          currentTotActiveWorkers,Workers >>        
 
 WorkerState == {"-","IDLE", "BUSY","FINISHED","STOPPING", "SHUTDOWN_REQUESTED", "DELETED"} \* Worker state
 AllActors == Actors \cup {"a0"}      \* actors in the Actors constant and a non-existent actor
-AllImageVersions == ImageVersion \cup {"-"}
+AllImageVersions == ImageVersion \cup {"-"} \* image versions in the ImageVersion and a non-existent actor
 
 
-(**************************************************************************************
- ****** Set of all possible message types in the queue                             ****
- **************************************************************************************)
+(*
+************************************************************************************
+Set of all possible message types in the queue             
+************************************************************************************
+*)
  
  \* These message types represent BOTH the HTTP request message (sent by the user) and the message queued in Abaco's queue.
  \* In the real implementation, the messages are not exactly the same, but we make this simplification for the spec:
@@ -90,11 +93,6 @@ Helper Operators
 
 Range(F) == { F[x] : x \in DOMAIN F }
 
-Str(i) == CASE i = 1 -> "1" 
-            [] i = 2 -> "2" 
-            [] i = 3 -> "3"
-            [] i = 4 -> "4"
-            [] i = 5 -> "5"
  
 (*
 ****************************
@@ -104,7 +102,7 @@ Initialization of Variables
 
 Init == 
     /\ actorStatus = [a \in Actors |-> "READY"] 
-    /\ Workers = {"w"\o Str(i) : i \in 1..MaxWorkers+1}
+    /\ Workers \in {1..MaxWorkers+1}
     /\ workerStatus = [w \in Workers|-> [actor|->"a0",status|->"-"]] \* a0 is in AllActors but not in Actors
     /\ actor_msg_queues = [a \in Actors |-> <<>>]
     /\ command_queues = [a \in Actors |-> <<>>]
@@ -133,7 +131,6 @@ Represents the Abaco platform receiving an HTTP request to the POST /actors/{id}
     /\  msg.type = "EXECUTE"
     /\  msg.actor = a
     /\  tmsg < MaxMessage
-    /\  Len(actor_msg_queues[a]) <  MaxQueueSize
     /\  actor_msg_queues'= [actor_msg_queues EXCEPT ![a] = Append(actor_msg_queues[a],msg)] \* QUESTION: do we want to queue this message? 
     /\  tmsg' = tmsg + 1
     /\  currentImageVersion'=[currentImageVersion EXCEPT ![a]= IF currentImageVersion[a]="-" THEN msg.image
@@ -200,7 +197,7 @@ StartDeleteWorker(w,a) ==
 (*
 Represents internal processing that occurrs when the autoscaler determines that a worker should be deleted.
 *)
-    /\ actorStatus[a] = "SHUTTING_DOWN" \/ (actorStatus[a] = "UPDATING_IMAGE" /\ workerStatus[w].status = "IDLE") \/ (workerStatus[w].status = "IDLE" /\ Len(actor_msg_queues[a]) = 0)
+    /\ actorStatus[a] = "SHUTTING_DOWN" \/ (actorStatus[a] = "UPDATING_IMAGE" /\ workerStatus[w].status = "IDLE") \*\/ (workerStatus[w].status = "IDLE" /\ Len(actor_msg_queues[a]) = 0)
     /\ workerStatus[w].status # "-"
     /\ workerStatus[w].status # "SHUTDOWN_REQUESTED"
     /\ w \in actorWorkers[a]
@@ -348,7 +345,7 @@ FairSpec == Spec
         /\ WF_vars(\E w \in Workers,a \in Actors: FreeWorker(w,a))
         /\ WF_vars(\E a \in Actors: UpdateActor(a))
         /\ WF_vars(\E a \in Actors: DeleteActor(a))
-        /\ WF_vars(\E w \in Workers, a \in Actors: DeleteWorker(w,a))
+        \*/\ WF_vars(\E w \in Workers, a \in Actors: DeleteWorker(w,a))
         /\ WF_vars(\E w \in Workers, a \in Actors: StartDeleteWorker(w,a))
         /\ WF_vars(\E w \in Workers, a \in Actors: CompleteDeleteWorker(w,a))
 
@@ -393,12 +390,11 @@ THEOREM Init => InductiveInvariant
 <1>3. QED
   BY <1>1, <1>2 DEF InductiveInvariant
 
-             
 
-
-
+THEOREM NextProperty == InductiveInvariant /\ [Next]_vars => InductiveInvariant'
+ 
 =============================================================================
 \* Modification History
-\* Last modified Thu Sep 17 15:59:57 CDT 2020 by spadhy
+\* Last modified Sun Sep 20 12:07:13 CDT 2020 by spadhy
 \* Last modified Sun Sep 13 11:00:41 CDT 2020 by jstubbs
 \* Created Wed Aug 19 11:19:50 CDT 2020 by spadhy
