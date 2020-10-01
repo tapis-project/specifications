@@ -4,7 +4,7 @@ EXTENDS Naturals, FiniteSets, Sequences
 
 CONSTANTS Actors,               \* Set of Actors
           MaxMessage,           \* Maximum number of HTTP requests that are sent
-          MaxWorkers,           \* Maximum number of Workers that are allowed to be created 
+          \*MaxWorkers,           \* Maximum number of Workers that are allowed to be created 
           ScaleUpThreshold,     \* ScaleUpThreshold 
           MaxWorkersPerActor,   \* Maximum number of Workers per Actors
           ImageVersion          \* List of image versions
@@ -88,6 +88,10 @@ AllWorkersDeleted == <>[](currentTotActiveWorkers = 0)
 AllWorkersOfActorUseSameImageVersion_live == <>[](\A a \in Actors: \A x, y \in actorWorkers[a]:
     currentImageVersionForWorkers[x] = currentImageVersionForWorkers[y]) 
 
+AllWorkersOfActorUseCorrectImageVersion_live == <>[](\A a \in Actors: \A x \in actorWorkers[a]:
+    currentImageVersionForWorkers[x] = currentImageVersion[a]) /\ (\A a \in Actors: actorStatus[a]="READY") 
+    
+
 (*
 *****************
 Helper Operators
@@ -105,7 +109,8 @@ Initialization of Variables
 
 Init == 
     /\ actorStatus = [a \in Actors |-> "READY"] 
-    /\ Workers \in {1..MaxWorkers+1}
+    \*/\ Workers \in {1..MaxWorkers+1}
+    /\  Workers \in {1..MaxMessage}
     /\ workerStatus = [w \in Workers|-> [actor|->"a0",status|->"-"]] \* a0 is in AllActors but not in Actors
     /\ actor_msg_queues = [a \in Actors |-> <<>>]
     /\ command_queues = [a \in Actors |-> <<>>]
@@ -202,7 +207,8 @@ when receiving the HTTP request.
     /\ Len(command_queues[a]) > 0
     /\ Head(command_queues[a]).type = "UPDATE"
     /\ actorStatus[a] = "UPDATING_IMAGE"
-    /\ \A x, y \in actorWorkers[a]: currentImageVersionForWorkers[x]=currentImageVersionForWorkers[y] 
+    \*/\ \A x, y \in actorWorkers[a]: currentImageVersionForWorkers[x]=currentImageVersionForWorkers[y] 
+    /\ \A w \in actorWorkers[a]: currentImageVersionForWorkers[w]=currentImageVersion[a]
     /\ actorStatus' = [actorStatus EXCEPT ![a] = "READY"]
     /\ command_queues' = [command_queues EXCEPT ![a] = Tail(command_queues[a])]
     /\ UNCHANGED<<actor_msg_queues,worker_command_queues,tmsg,workerStatus,m,totalNumWorkers,
@@ -214,7 +220,7 @@ StartDeleteWorker(w,a) ==
 (*
 Represents internal processing that occurrs when the autoscaler determines that a worker should be deleted.
 *)
-    /\ actorStatus[a] = "SHUTTING_DOWN" \/ (actorStatus[a] = "READY"/\ Len(actor_msg_queues[a])=0 /\ workerStatus[w].status = "IDLE") \*\/ (actorStatus[a] = "UPDATING_IMAGE" /\ workerStatus[w].status = "IDLE")
+    /\ actorStatus[a] = "SHUTTING_DOWN" \/ (actorStatus[a] = "UPDATING_IMAGE" /\ workerStatus[w].status = "IDLE" /\ currentImageVersionForWorkers[w] # currentImageVersion[a] ) \* \/ (actorStatus[a] = "READY"/\ Len(actor_msg_queues[a])=0 /\ workerStatus[w].status = "IDLE") \/ (actorStatus[a] = "UPDATING_IMAGE" /\ workerStatus[w].status = "IDLE")
     /\ workerStatus[w].status # "-"
     /\ workerStatus[w].status # "SHUTDOWN_REQUESTED"
     /\ w \in actorWorkers[a]
@@ -311,10 +317,11 @@ Represents internal processing to create a worker.
 *)
 
     /\ Len(actor_msg_queues[a]) >= ScaleUpThreshold
-    /\ Cardinality({x \in Range(workerStatus): x.status # "SHUTDOWN_REQUESTED" /\ x.status # "-" /\ x.status # "DELETED"}) < MaxWorkers
+    \*/\ Cardinality({x \in Range(workerStatus): x.status # "SHUTDOWN_REQUESTED" /\ x.status # "-" /\ x.status # "DELETED"}) < (MaxWorkers+1)
     /\ Cardinality(actorWorkers[a]) < MaxWorkersPerActor 
     /\ (actorStatus[a]="READY") \/ (actorStatus[a]="UPDATING_IMAGE")
     /\ workerStatus[w]=[actor|->"a0", status|->"-"]
+    /\ ~(\E w1 \in actorWorkers[a]: workerStatus[w1].status="IDLE")
     /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"IDLE"]] 
     /\ workersCreated' = workersCreated \cup {w}
     /\ actorWorkers' = [actorWorkers EXCEPT ![a]= actorWorkers[a] \cup {w}]  
@@ -399,5 +406,5 @@ FairSpec == Spec
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Sep 28 19:01:30 CDT 2020 by spadhy
+\* Last modified Wed Sep 30 18:05:54 CDT 2020 by spadhy
 \* Created Mon Sep 28 16:22:19 CDT 2020 by spadhy
