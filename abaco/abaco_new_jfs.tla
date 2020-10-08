@@ -4,7 +4,7 @@ EXTENDS Naturals, FiniteSets, Sequences
 CONSTANTS Actors,               \* Set of Actors
           \*MaxQueueSize,       \* Maximum queue size of the message queue.
           MaxMessage,           \* Maximum number of HTTP requests that are sent
-\*          MaxWorkers,           \* Maximum number of Workers that are allowed to be created 
+         \*MaxWorkers,           \* Maximum number of Workers that are allowed to be created 
           ScaleUpThreshold,     \* ScaleUpThreshold 
           MaxWorkersPerActor,   \* Maximum number of Workers per Actors
           ImageVersion          \* List of image versions
@@ -78,10 +78,12 @@ AllWorkersOfActorUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorker
 
 
 AllWorkersOfReadyActorsUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorkers[a]: 
-    actorStatus[a] = "READY" /\ workerStatus[x].status = "IDLE" => currentImageVersionForWorkers[x] = currentImageVersionForWorkers[y]  
+    actorStatus[a] = "READY" /\ workerStatus[x].status = "IDLE" => 
+    currentImageVersionForWorkers[x] = currentImageVersionForWorkers[y]  
 
 AllWorkersOfReadyActorsUseLatestImageVersion == \A a \in Actors: \A x \in actorWorkers[a]: 
-    actorStatus[a] = "READY" /\ workerStatus[x].status = "IDLE" => currentImageVersionForWorkers[x] = currentImageVersion[a]  
+    actorStatus[a] = "READY" /\ workerStatus[x].status = "IDLE" => 
+    currentImageVersionForWorkers[x] = currentImageVersion[a]  
  
 
 AllWorkersOfActorUseCorrectImageVersion_live == \A a \in Actors: \A x \in actorWorkers[a]:
@@ -204,7 +206,7 @@ The enabling condition is the actorStatus value (UPDATING_IMAGE) which is set wh
     /\ actorStatus[a] = "UPDATING_IMAGE"
 \* change #1 -- we no longer require the actor's workers to be empty...
 \*    /\ actorWorkers[a] = {} \* TODO --- what about workerStatus function? workers still active and assigned to actors there.
-\*    /\ \A w \in actorWorkers[a]: currentImageVersionForWorkers[w]=currentImageVersion[a]
+    /\ \A w \in actorWorkers[a]: currentImageVersionForWorkers[w]=currentImageVersion[a]
     /\ actorStatus' = [actorStatus EXCEPT ![a] = "READY"]
     /\ command_queues' = [command_queues EXCEPT ![a] = Tail(command_queues[a])]
     /\ UNCHANGED<<actor_msg_queues,worker_command_queues,tmsg,workerStatus,m,totalNumWorkers, workersCreated,actorWorkers,currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers>>
@@ -420,6 +422,6 @@ THEOREM NextProperty == InductiveInvariant /\ [Next]_vars => InductiveInvariant'
  
 =============================================================================
 \* Modification History
+\* Last modified Thu Oct 08 12:20:38 CDT 2020 by spadhy
 \* Last modified Wed Sep 30 22:28:13 CDT 2020 by jstubbs
-\* Last modified Sun Sep 20 12:07:13 CDT 2020 by spadhy
 \* Created Wed Aug 19 11:19:50 CDT 2020 by spadhy
