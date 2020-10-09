@@ -224,8 +224,8 @@ Represents internal processing that occurrs when the autoscaler determines that 
     /\ w \in actorWorkers[a]
     /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"SHUTDOWN_REQUESTED"]]
     /\ worker_command_queues' = [worker_command_queues EXCEPT ![w] = Append(worker_command_queues[w], [type |->"COMMAND", message |->"SHUTDOWN"])]
-    /\ actorWorkers'=  [actorWorkers EXCEPT ![a] = actorWorkers[a] \ {w}]
-    /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus,m, tmsg, totalNumWorkers,workersCreated, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers>>                                                  
+    \*/\ actorWorkers'=  [actorWorkers EXCEPT ![a] = actorWorkers[a] \ {w}]
+    /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus,m, tmsg, totalNumWorkers,workersCreated, actorWorkers, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers>>                                                  
  
 
 DropWorkerCommandMessage(w,a) ==
@@ -245,10 +245,12 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
     /\ Head(worker_command_queues[w]).type = "COMMAND"
     /\ Head(worker_command_queues[w]).message = "SHUTDOWN"
     /\ workerStatus[w].status = "SHUTDOWN_REQUESTED"
+    /\ w \in actorWorkers[a]
     /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"DELETED"]]
     /\ worker_command_queues' = [worker_command_queues EXCEPT ![w] = Tail(worker_command_queues[w])]
+    /\ actorWorkers'=  [actorWorkers EXCEPT ![a] = actorWorkers[a] \ {w}]
     /\ currentTotActiveWorkers'=currentTotActiveWorkers - 1
-    /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus,m, tmsg, totalNumWorkers, workersCreated, currentImageVersion,currentImageVersionForWorkers,actorWorkers,Workers>>
+    /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus,m, tmsg, totalNumWorkers, workersCreated, currentImageVersion,currentImageVersionForWorkers,Workers>>
 
 
 \* DEPRECATED -----
@@ -422,6 +424,6 @@ THEOREM NextProperty == InductiveInvariant /\ [Next]_vars => InductiveInvariant'
  
 =============================================================================
 \* Modification History
-\* Last modified Thu Oct 08 12:20:38 CDT 2020 by spadhy
+\* Last modified Fri Oct 09 18:33:56 CDT 2020 by spadhy
 \* Last modified Wed Sep 30 22:28:13 CDT 2020 by jstubbs
 \* Created Wed Aug 19 11:19:50 CDT 2020 by spadhy
