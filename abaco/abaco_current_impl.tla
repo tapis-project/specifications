@@ -30,12 +30,13 @@ VARIABLES actor_msg_queues,      \* actor's message_queues. One queue correspond
           actorWorkers,          \* subset of workers assigned to each actor
           
           currentImageVersion,   \* current image version for each actor
-          currentImageVersionForWorkers \* Image version used by each worker
+          currentImageVersionForWorkers, \* Image version used by each worker
+          shutdown_flags         \* shutdown_flags for each worker
          
           
 vars == <<actor_msg_queues, command_queues, worker_command_queues, actorStatus, workerStatus, m, tmsg,
           totalNumWorkers, workersCreated, actorWorkers, currentImageVersion, currentImageVersionForWorkers,
-          currentTotActiveWorkers,Workers >>   
+          currentTotActiveWorkers,Workers, shutdown_flags>>   
                
 \* Worker state
 WorkerState == {"-","IDLE", "BUSY","FINISHED", "SHUTDOWN_REQUESTED", "DELETED"}
@@ -81,6 +82,7 @@ TypeInvariant ==
   /\ actorWorkers \in [Actors -> SUBSET Workers] \* each actor mapped to a subset of workers
   /\ currentImageVersion \in [Actors -> AllImageVersions]
   /\ currentImageVersionForWorkers  \in [Workers -> AllImageVersions]
+  /\ shutdown_flags \in [Workers -> {TRUE,FALSE}]
  
 \* An invariant: ensures all the workers of an actor will eventually use the same Image version. 
 
@@ -145,6 +147,7 @@ Init ==
     /\ actorWorkers = [a \in Actors |-> {}]   \* actorWorkers are also empty
     /\ currentImageVersion = [a \in Actors |-> "-"] \* Initially no images
     /\ currentImageVersionForWorkers  = [w \in Workers |-> "-"]
+    /\ shutdown_flags = [w \in Workers |-> FALSE]
     
 ----------------------------------------------------------------------------------    
 (*    
@@ -166,7 +169,7 @@ Represents the Abaco platform receiving an HTTP request to the POST /actors/{id}
     /\  currentImageVersion'=[currentImageVersion EXCEPT ![a]= IF currentImageVersion[a]="-" THEN msg.image
                                                                                           ELSE currentImageVersion[a]] 
     /\  UNCHANGED<<worker_command_queues,actorStatus,workerStatus,m,totalNumWorkers, workersCreated, 
-        actorWorkers,currentImageVersionForWorkers,command_queues,currentTotActiveWorkers,Workers>>   
+        actorWorkers,currentImageVersionForWorkers,command_queues,currentTotActiveWorkers,Workers, shutdown_flags>>   
 
  
 ActorDeleteRecv(msg,a) ==
@@ -183,7 +186,7 @@ Represents the Abaco platform receiving an HTTP request to the DELETE /actors/{i
     /\ tmsg' = tmsg + 1
     /\ UNCHANGED<<worker_command_queues, m, workerStatus,totalNumWorkers, workersCreated, 
        actorWorkers, currentImageVersion, currentImageVersionForWorkers, actor_msg_queues,
-       currentTotActiveWorkers, Workers>>                                                                        
+       currentTotActiveWorkers, Workers, shutdown_flags>>                                                                        
  
  
 ActorUpdateRecv(msg, a) ==    
@@ -197,10 +200,11 @@ Represents the Abaco platform receiving an HTTP request to the PUT /actors/{id} 
     /\  tmsg < MaxMessage
     /\  actorStatus' = [actorStatus EXCEPT ![a] = "UPDATING_IMAGE"]
     /\  command_queues'= [command_queues EXCEPT ![a] = Append(command_queues[a],msg)]
-    /\  currentImageVersion' = [currentImageVersion EXCEPT ![a] = msg.image]
+    /\  shutdown_flags' = [ i \in Workers |-> IF ~(i \in actorWorkers[a]) THEN shutdown_flags[i] ELSE shutdown_flags[i] = TRUE ]
     /\  tmsg' = tmsg + 1
-    /\  UNCHANGED<<worker_command_queues, workerStatus, m, totalNumWorkers, workersCreated,
-        actorWorkers, currentImageVersionForWorkers, actor_msg_queues,currentTotActiveWorkers, Workers>>  
+    /\  UNCHANGED<<worker_command_queues, workerStatus, m, totalNumWorkers, workersCreated, actorWorkers, 
+        currentImageVersion, currentImageVersionForWorkers, actor_msg_queues,currentTotActiveWorkers, Workers>>  
+     
 
 ---------------------------------------------------------------------------------------------------------------------------------
 (*    
@@ -209,7 +213,7 @@ Asynchronous Task Processing
 *****************************
 *)
  
-UpdateActor(a) == 
+UpdateActorImage(a) == 
 (*
 Represents internal processing of an actor update request. We represent this as an independent action because the processing happens 
 asynchronously to the original HTTP request.
@@ -217,13 +221,11 @@ The enabling condition is the actorStatus value (UPDATING_IMAGE) which is set wh
 *)
     /\ Len(command_queues[a]) > 0
     /\ Head(command_queues[a]).type = "UPDATE"
-    /\ actorStatus[a] = "UPDATING_IMAGE"
-    \* change #1 -- we no longer require the actor's workers to be empty...
-    \*/\ \A w \in actorWorkers[a]: currentImageVersionForWorkers[w]=currentImageVersion[a]
-    /\ actorStatus' = [actorStatus EXCEPT ![a] = "READY"]
+    \*/\ actorStatus[a] = "UPDATING_IMAGE"
+    /\ currentImageVersion' = [currentImageVersion EXCEPT ![a] = Head(command_queues[a]).image]
     /\ command_queues' = [command_queues EXCEPT ![a] = Tail(command_queues[a])]
     /\ UNCHANGED<<actor_msg_queues,worker_command_queues,tmsg,workerStatus,m,totalNumWorkers, workersCreated,
-       actorWorkers, currentImageVersion, currentImageVersionForWorkers,currentTotActiveWorkers,Workers>>
+       actorWorkers, actorStatus, currentImageVersionForWorkers,currentTotActiveWorkers,Workers, shutdown_flags>>
          
            
 StartDeleteWorker(w,a) ==
@@ -231,7 +233,7 @@ StartDeleteWorker(w,a) ==
 Represents internal processing that occurrs when the autoscaler determines that a worker should be deleted.
 *)
 
-    /\ actorStatus[a] = "SHUTTING_DOWN" \/ ( actorStatus[a] = "UPDATING_IMAGE" /\ (workerStatus[w].status = "IDLE" \/ workerStatus[w].status = "FINISHED"))\/ (workerStatus[w].status = "IDLE" /\ Len(actor_msg_queues[a]) = 0)
+    /\ actorStatus[a] = "SHUTTING_DOWN" \/ ( shutdown_flags[w]=TRUE /\ (workerStatus[w].status = "IDLE" \/ workerStatus[w].status = "FINISHED"))\/ (workerStatus[w].status = "IDLE" /\ Len(actor_msg_queues[a]) = 0)
     \* change #2 - we enable a worker to be deleted if it is IDLE and does not have the most recent image:
     \*/\ actorStatus[a] = "SHUTTING_DOWN" \/ ( (workerStatus[w].status = "IDLE" \/ workerStatus[w].status = "FINISHED") /\ currentImageVersionForWorkers[w] # currentImageVersion[a] )
     /\ workerStatus[w].status # "-"
@@ -240,7 +242,7 @@ Represents internal processing that occurrs when the autoscaler determines that 
     /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"SHUTDOWN_REQUESTED"]]
     /\ worker_command_queues' = [worker_command_queues EXCEPT ![w] = Append(worker_command_queues[w], [type |->"COMMAND", message |->"SHUTDOWN"])]
     \*/\ actorWorkers'=  [actorWorkers EXCEPT ![a] = actorWorkers[a] \ {w}]
-    /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus,m, tmsg, totalNumWorkers,workersCreated, actorWorkers, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers>>                                                  
+    /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus,m, tmsg, totalNumWorkers,workersCreated, actorWorkers, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers, shutdown_flags>>                                                  
  
 
 DropWorkerCommandMessage(w,a) ==
@@ -250,7 +252,7 @@ Represents the network (or any other event really) dropping a worker command que
     /\ Len(worker_command_queues[w]) > 0
     /\ worker_command_queues' = [worker_command_queues EXCEPT ![w] = Tail(worker_command_queues[w])]
     /\ UNCHANGED<<actor_msg_queues,actorWorkers,workerStatus,command_queues,actorStatus,m, tmsg, 
-       totalNumWorkers, workersCreated, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers>>
+       totalNumWorkers, workersCreated, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers, shutdown_flags>>
 
 
 CompleteDeleteWorker(w,a) ==
@@ -267,7 +269,7 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
     /\ actorWorkers'=  [actorWorkers EXCEPT ![a] = actorWorkers[a] \ {w}]
     /\ currentTotActiveWorkers'=currentTotActiveWorkers - 1
     /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus,m, tmsg, totalNumWorkers, 
-       workersCreated, currentImageVersion,currentImageVersionForWorkers,Workers>>
+       workersCreated, currentImageVersion,currentImageVersionForWorkers,Workers, shutdown_flags>>
 
 
  
@@ -284,7 +286,7 @@ happens asynchronously to the original HTTP request.
     /\ command_queues' = [command_queues EXCEPT ![a] = Tail(command_queues[a])]
     /\ actor_msg_queues'= [actor_msg_queues EXCEPT ![a] = <<>>]
     /\ UNCHANGED<<worker_command_queues,workerStatus,m, tmsg, totalNumWorkers, workersCreated, actorWorkers,
-       currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers>> 
+       currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers, shutdown_flags>> 
  
  
 CreateWorker(w,a) ==
@@ -294,7 +296,7 @@ Represents internal processing to create a worker.
 
     /\ Len(actor_msg_queues[a]) >= ScaleUpThreshold
     /\ Cardinality(actorWorkers[a]) <= MaxWorkersPerActor
-    /\ actorStatus[a]="READY"
+    \*/\ actorStatus[a]="READY" \/ actorStatus[a]="UPDATING_IMAGING"
     \* Workers are created irrespective of other workers status
     \* change 5 
     \*/\ ~(\E w1 \in actorWorkers[a]: workerStatus[w1].status="IDLE") \*/\ currentImageVersionForWorkers[w1] = currentImageVersion[a])
@@ -305,7 +307,7 @@ Represents internal processing to create a worker.
     /\ currentImageVersionForWorkers' = [currentImageVersionForWorkers EXCEPT ![w] = currentImageVersion[a]]                                            
     /\ totalNumWorkers' = totalNumWorkers + 1
     /\ currentTotActiveWorkers' = currentTotActiveWorkers + 1
-    /\ UNCHANGED<<actor_msg_queues,command_queues,worker_command_queues,actorStatus,m,tmsg, currentImageVersion,Workers>>
+    /\ UNCHANGED<<actor_msg_queues,command_queues,worker_command_queues,actorStatus,m,tmsg, currentImageVersion,Workers, shutdown_flags>>
    
 
 WorkerRecv(w,a) ==
@@ -319,10 +321,12 @@ This action dequeues the message an represents starting the execution.
     \* change #3 -- a worker must have the same image as the actor to receive a message. 
     \*/\ currentImageVersionForWorkers[w] = currentImageVersion[a]
     /\ workerStatus[w] = [actor|->a, status|->"IDLE"] \* a worker can receive a message if its status is not shutdown requested or IDLE 
+    /\ actorStatus' = [actorStatus EXCEPT ![a] = IF actorStatus[a]="UPDATING_IMAGE" THEN "READY"
+                                                                                          ELSE actorStatus[a]]
     /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"BUSY"]]  
     /\ actor_msg_queues'= [actor_msg_queues EXCEPT ![a] = Tail(actor_msg_queues[a])]
-    /\ UNCHANGED<<command_queues,worker_command_queues,actorStatus,m, tmsg, totalNumWorkers, workersCreated,
-       actorWorkers, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers>>    
+    /\ UNCHANGED<<command_queues,worker_command_queues, m, tmsg, totalNumWorkers, workersCreated,
+       actorWorkers, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers,shutdown_flags>>    
 
 WorkerBusy(w,a) == 
 (*
@@ -336,7 +340,7 @@ finalize the execution before being returned to the pool;
     /\ m' = m + 1  
     /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"FINISHED"]]    
     /\ UNCHANGED<<actor_msg_queues,command_queues,worker_command_queues,actorStatus,tmsg, totalNumWorkers, workersCreated, 
-       actorWorkers, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers>>   
+       actorWorkers, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers, shutdown_flags>>   
 
 FreeWorker(w,a) ==
 (*
@@ -351,14 +355,14 @@ This action changes the worker's status to IDLE, which returns it to the pool;
     \*/\ currentImageVersionForWorkers[w] = currentImageVersion[a] 
     /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"IDLE"]] 
     /\ UNCHANGED<<actor_msg_queues,command_queues,worker_command_queues,actorStatus, m, tmsg, totalNumWorkers, workersCreated, 
-       actorWorkers, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers>>         
+       actorWorkers, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers, shutdown_flags>>         
 
 
 Next == 
     \/ \E msg \in ActorMessages, a \in Actors: ActorExecuteRecv(msg,a)
     \/ \E msg \in CommandMessages, a \in Actors: ActorUpdateRecv(msg, a) 
     \/ \E msg \in CommandMessages, a \in Actors:  ActorDeleteRecv(msg,a)
-    \/ \E a \in Actors: UpdateActor(a)
+    \/ \E a \in Actors: UpdateActorImage(a)
     \/ \E w \in Workers,  a \in Actors: CreateWorker(w,a)
     \/ \E w \in Workers, a \in Actors: WorkerRecv(w, a)
     \/ \E w \in Workers, a\in Actors: WorkerBusy(w,a)
@@ -375,12 +379,12 @@ FairSpec == Spec
         /\ WF_vars(\E w \in Workers, a \in Actors: WorkerRecv(w,a))
         /\ WF_vars(\E w \in Workers, a \in Actors: WorkerBusy(w,a))
         /\ WF_vars(\E w \in Workers,a \in Actors: FreeWorker(w,a))
-        /\ WF_vars(\E a \in Actors: UpdateActor(a))
+        /\ WF_vars(\E a \in Actors: UpdateActorImage(a))
         /\ WF_vars(\E a \in Actors: DeleteActor(a))
         /\ WF_vars(\E w \in Workers, a \in Actors: StartDeleteWorker(w,a))
         /\ WF_vars(\E w \in Workers, a \in Actors: CompleteDeleteWorker(w,a))
 
 =============================================================================
 \* Modification History
-\* Last modified Fri Oct 09 15:37:18 CDT 2020 by spadhy
+\* Last modified Fri Oct 09 18:29:32 CDT 2020 by spadhy
 \* Created Thu Oct 08 12:27:41 CDT 2020 by spadhy
