@@ -81,7 +81,7 @@ TypeInvariant ==
  \*   currentImageVersionForWorkers[x] = currentImageVersionForWorkers[y]  
 
 AllWorkersOfActorUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorkers[a]:
-    revision_number_for_workers[x] = revision_number_for_workers[x]  
+    revision_number_for_workers[x] = revision_number_for_workers[y]  
 
 \*AllWorkersOfReadyActorsUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorkers[a]: 
 \*    actorStatus[a] = "READY" /\ workerStatus[x].status = "IDLE" => 
@@ -94,7 +94,10 @@ AllWorkersOfReadyActorsUseSameImageVersion == \A a \in Actors: \A x, y \in actor
 
 AllWorkersOfReadyActorsUseLatestImageVersion == \A a \in Actors: \A x \in actorWorkers[a]: 
     actorStatus[a] = "READY" /\ workerStatus[x].status = "IDLE" => 
-    revision_number_for_workers[x] = revision_number[a]      
+    revision_number_for_workers[x] = revision_number[a]    
+    
+AllWorkersOfActorsUseLatestImageVersion == \A a \in Actors: \A x \in actorWorkers[a]: 
+        revision_number_for_workers[x] = revision_number[a]         
     
 \*AllWorkersOfReadyActorsUseLatestImageVersion == \A a \in Actors: \A x \in actorWorkers[a]: 
  \*   actorStatus[a] = "READY" /\ workerStatus[x].status = "IDLE" => 
@@ -258,13 +261,6 @@ Represents internal processing that occurrs when the autoscaler determines that 
        actorWorkers, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers, Workers, revision_number, revision_number_for_workers>>                                                  
  
 
-DropWorkerCommandMessage(w,a) ==
-(*
-Represents the network (or any other event really) dropping a worker command queue message. 
-*)
-    /\ Len(worker_command_queues[w]) > 0
-    /\ worker_command_queues' = [worker_command_queues EXCEPT ![w] = Tail(worker_command_queues[w])]
-    /\ UNCHANGED<<actor_msg_queues,actorWorkers,workerStatus,command_queues,actorStatus,m, tmsg, totalNumWorkers, workersCreated, currentImageVersion,currentImageVersionForWorkers,currentTotActiveWorkers,Workers>>
 
 
 CompleteDeleteWorker(w,a) ==
@@ -284,21 +280,7 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
        currentImageVersion, currentImageVersionForWorkers, Workers, revision_number, revision_number_for_workers>>
 
 
-\* DEPRECATED -----
-DeleteWorker(w,a) ==
-(*
-Represents internal processing to delete a worker.
-*)
-    /\ actorStatus[a] = "SHUTTING_DOWN" \/ (actorStatus[a] = "UPDATING_IMAGE" /\ workerStatus[w].status = "IDLE") \* \/ (workerStatus[w].status = "IDLE" /\ Len(actor_msg_queues[a]) = 0)
-    /\ workerStatus[w].status # "-"
-    /\ w \in actorWorkers[a]
-    /\ actorWorkers'=  [actorWorkers EXCEPT ![a] = actorWorkers[a] \ {w}]
-    /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"DELETED"]]
-    /\ currentTotActiveWorkers' = currentTotActiveWorkers - 1
-    /\ UNCHANGED<<actor_msg_queues,command_queues,worker_command_queues,actorStatus,m, tmsg, totalNumWorkers, workersCreated, currentImageVersion,currentImageVersionForWorkers,Workers>>                                                  
-\* ------ 
- 
- 
+
 DeleteActor(a) ==
 (*
 Represents internal processing to delete an actor. Similar to UpdateActor, we represent this as an indpendent action because the processing
@@ -326,7 +308,7 @@ Represents internal processing to create a worker.
 \*    /\ totalNumWorkers < MaxWorkers
     /\ Cardinality(actorWorkers[a]) <= MaxWorkersPerActor
     /\ ~(\E w1 \in actorWorkers[a]: workerStatus[w1].status="IDLE") \*/\ currentImageVersionForWorkers[w1] = currentImageVersion[a])
-    /\ actorStatus[a]="READY"
+    /\ actorStatus[a]="READY" \/ actorStatus[a]="UPDATING_IMAGE"
     /\ workerStatus[w]=[actor|->"a0", status|->"-"]
     /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"IDLE"]] 
     /\ workersCreated' = workersCreated \cup {w}
@@ -346,7 +328,7 @@ This action dequeues the message an represents starting the execution.
 
     /\ Len(actor_msg_queues[a]) > 0  
     /\ actorStatus[a] # "SHUTTING_DOWN" 
-    /\ actorStatus[a] # "UPDATING_IMAGE"
+    \*/\ actorStatus[a] # "UPDATING_IMAGE"
     \* change #3 -- a worker must have the same image as the actor to receive a message. 
     \*/\ currentImageVersionForWorkers[w] = currentImageVersion[a]
     /\ revision_number_for_workers[w] = revision_number[a]
@@ -461,6 +443,6 @@ THEOREM NextProperty == InductiveInvariant /\ [Next]_vars => InductiveInvariant'
  
 =============================================================================
 \* Modification History
-\* Last modified Sat Oct 10 01:47:56 CDT 2020 by spadhy
+\* Last modified Sat Oct 10 09:02:59 CDT 2020 by spadhy
 \* Last modified Wed Sep 30 22:28:13 CDT 2020 by jstubbs
 \* Created Wed Aug 19 11:19:50 CDT 2020 by spadhy
