@@ -75,17 +75,11 @@ TypeInvariant ==
   
  
 \* An invariant: ensures all the workers of an actor will eventually use the same Image version. 
-
-
-\*AllWorkersOfActorUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorkers[a]:
- \*   currentImageVersionForWorkers[x] = currentImageVersionForWorkers[y]  
+ 
 
 AllWorkersOfActorUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorkers[a]:
     revision_number_for_workers[x] = revision_number_for_workers[y]  
-
-\*AllWorkersOfReadyActorsUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorkers[a]: 
-\*    actorStatus[a] = "READY" /\ workerStatus[x].status = "IDLE" => 
-\*    currentImageVersionForWorkers[x] = currentImageVersionForWorkers[y]  
+  
 
 AllWorkersOfReadyActorsUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorkers[a]: 
     actorStatus[a] = "READY" /\ workerStatus[x].status = "IDLE" => 
@@ -98,17 +92,12 @@ AllWorkersOfReadyActorsUseLatestImageVersion == \A a \in Actors: \A x \in actorW
     
 AllWorkersOfActorsUseLatestImageVersion == \A a \in Actors: \A x \in actorWorkers[a]: 
         revision_number_for_workers[x] = revision_number[a]         
-    
-\*AllWorkersOfReadyActorsUseLatestImageVersion == \A a \in Actors: \A x \in actorWorkers[a]: 
- \*   actorStatus[a] = "READY" /\ workerStatus[x].status = "IDLE" => 
- \*   currentImageVersionForWorkers[x] = currentImageVersion[a]  
- 
 
-\*AllWorkersOfActorUseCorrectImageVersion_live == \A a \in Actors: \A x \in actorWorkers[a]:
- \*   currentImageVersionForWorkers[x] = currentImageVersion[a]
-
-AllWorkersOfActorUseCorrectImageVersion_live == \A a \in Actors: \A x \in actorWorkers[a]:
-    revision_number_for_workers[x] = revision_number[a]    
+\* Temporarl properties 
+AllWorkersOfActorUseLatestImageVersion_live == <>[](\A a \in Actors: \A x \in actorWorkers[a]:
+    revision_number_for_workers[x] = revision_number[a])  
+AllWorkersOfActorUseSameImageVersion_live == <>[](\A a \in Actors: \A x, y \in actorWorkers[a]:
+    revision_number_for_workers[x] = revision_number_for_workers[y] )     
   
 \* A temporal property: ensures all actor messages are eventually processed 
 \* (i.e., that the actors_msq_queue is eventually 0 from some point until the end of the run.)
@@ -443,6 +432,6 @@ THEOREM NextProperty == InductiveInvariant /\ [Next]_vars => InductiveInvariant'
  
 =============================================================================
 \* Modification History
-\* Last modified Sat Oct 10 09:02:59 CDT 2020 by spadhy
+\* Last modified Sat Oct 10 10:01:18 CDT 2020 by spadhy
 \* Last modified Wed Sep 30 22:28:13 CDT 2020 by jstubbs
 \* Created Wed Aug 19 11:19:50 CDT 2020 by spadhy
