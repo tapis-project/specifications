@@ -47,15 +47,6 @@ TypeInvariant ==
 \* (i.e., that the length of msq_queue is eventually 0 
 \* from some point until the end of the run.)
 AllMessagesProcessed == <>[](\A a \in Servers: Len(msg_queue) = 0)    
-
-(*
-*****************
-Helper Operators
-*****************
-*)
-
-Range(F) == { F[x] : x \in DOMAIN F }
-
  
 (*
 ****************************
@@ -129,5 +120,5 @@ FairSpec == Spec
         /\ WF_vars(\E s \in Servers: ServerBusy(s)) 
 =============================================================================
 \* Modification History
-\* Last modified Tue Oct 20 14:43:50 CDT 2020 by spadhy
+\* Last modified Wed Oct 21 17:27:13 CDT 2020 by spadhy
 \* Created Tue Oct 20 14:31:41 CDT 2020 by spadhy
