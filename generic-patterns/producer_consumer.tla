@@ -119,6 +119,7 @@ THEOREM Spec => []IInv
 
 
 (*------ Decomposition 1' ------ *)
+(* Removed HeadTailProperties from the proof step <3>. in decomposition 1. TLAPS still able o prove it *)
 THEOREM Spec => []IInv
 <1>1. Init => IInv
   BY Assumption DEF Init, IInv, TypeInvariant, SafetyProperty
@@ -143,9 +144,10 @@ THEOREM Spec => []IInv
 <1>. QED  BY <1>1, <1>2, PTL DEF Spec
 
 
-(* ----- Proof decomposition 2 ------- *)
+(* ----- Proof Decomposition 2 ------- *)
+(* Separately proved step 1 and step 2 of the proof as LEMMA. Then proved the fonal THEOREM. *)
 
-THEOREM TypeCorrect == Init => IInv
+LEMMA TypeCorrect == Init => IInv
   <1> SUFFICES ASSUME Init
                PROVE  IInv
     OBVIOUS
@@ -156,7 +158,8 @@ THEOREM TypeCorrect == Init => IInv
   <1>3. QED
     BY <1>1, <1>2 DEF IInv
 
-THEOREM SecondStep== IInv /\[Next]_vars => IInv'
+(* Decompose proof into CASE Next, UNCHANGED vars. CASE Next is further decomposed into Produce, Consume, UNCHANGED *)
+LEMMA SecondStep== IInv /\[Next]_vars => IInv'
   <1> SUFFICES ASSUME IInv,
                       [Next]_vars
                PROVE  IInv'
@@ -189,6 +192,10 @@ THEOREM SecondStep== IInv /\[Next]_vars => IInv'
                     TypeInvariant, SafetyProperty*)
   
 (* ----- Proof decomposition 3 ------- *)
+(* Decomposed proof of <1>2 into individual conjunct of IInv', that is TypeInvariant' and SafetyProperty' *)
+(* TypeInvariant' and SafetyInvariant' further decomposed into CASE Produce, CASE Consume, CASE UNCHANGED vars respectively.*)
+(* It is interesting to see step <2>1.<3>2 does not require assert Len(buffer') = Len(buffer)-1 to prove TypeInvariant' *)
+(* while step <2>2.<3><2> requires it to prove SafetyProperty'*)
   THEOREM Spec => []IInv
     <1>1. Init => IInv
     BY Assumption DEF Init, IInv, TypeInvariant, SafetyProperty
@@ -221,11 +228,13 @@ THEOREM SecondStep== IInv /\[Next]_vars => IInv'
         <3>4. QED
           BY <3>1, <3>2, <3>3 DEF Next
       <2>3. QED
-        BY <2>1, <2>2, PTL DEF IInv
+        BY <2>1, <2>2 DEF IInv
   
    <1>. QED  BY <1>1, <1>2, PTL DEF Spec
 
-(* Modification to the above decomposition 3 *)
+(* ---- Proof Decomposition 3' --- Modification to the above proof decomposition 3 *)
+(* When tried to decompose proof for the step <2>2.<3><2>, i.e CASE Consume to proof SafetyProperty',  it decompose it to further to CASE Produce, Consume, UNCHANGED vars*)
+ 
  THEOREM Spec => []IInv
     <1>1. Init => IInv
     BY Assumption DEF Init, IInv, TypeInvariant, SafetyProperty
@@ -268,12 +277,12 @@ THEOREM SecondStep== IInv /\[Next]_vars => IInv'
         <3>4. QED
           BY <3>1, <3>2, <3>3 DEF Next
       <2>3. QED
-        BY <2>1, <2>2, PTL DEF IInv
+        BY <2>1, <2>2 DEF IInv
   
    <1>. QED  BY <1>1, <1>2, PTL DEF Spec
 
            
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 11:58:54 CST 2020 by spadhy
+\* Last modified Mon Nov 16 12:21:06 CST 2020 by spadhy
 \* Created Mon Oct 26 10:27:47 CDT 2020 by spadhy
