@@ -207,7 +207,7 @@ LEMMA SecondStep== IInv /\[Next]_vars => IInv'
         <3>1. ASSUME NEW item \in Item,
                      Produce(item)
               PROVE  TypeInvariant'
-              BY <3>1, Assumption DEF Produce, IInv, TypeInvariant, SafetyProperty
+              BY <3>1, Assumption DEF Produce, IInv, TypeInvariant
        <3>2. CASE Consume
         BY <3>2, Assumption DEF Consume, IInv, TypeInvariant, SafetyProperty
        <3>3. CASE UNCHANGED vars
@@ -284,5 +284,5 @@ LEMMA SecondStep== IInv /\[Next]_vars => IInv'
            
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 12:21:06 CST 2020 by spadhy
+\* Last modified Thu Nov 19 11:10:23 CST 2020 by spadhy
 \* Created Mon Oct 26 10:27:47 CDT 2020 by spadhy
