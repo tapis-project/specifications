@@ -11,7 +11,6 @@ ASSUME SpecAssumption ==
          /\ MaxMessage \in (Nat \ {0})
          /\ ScaleUpThreshold \in (Nat \ {0}) (* ScaleUpThreshold should be atleast 1 *)   
          /\ MinimumServersAlwaysUp \in (Nat \ {0})  (* Atleast one server should always be running *) 
-         \*/\ MaxMessage >=  MinimumServersAlwaysUp
          /\ MaxServers \in (Nat \ {0})
          /\ MinimumServersAlwaysUp <= MaxServers 
  
@@ -62,7 +61,7 @@ TypeInvariant ==
   /\ msg_queue \in Seq(Messages)
   /\ Len(msg_queue) \in 0..MaxMessage
   /\ tmsg \in 0..MaxMessage
-  /\ tmsg + Len(msg_queue)<= 2*MaxMessage
+  \*/\ tmsg + Len(msg_queue)<= 2*MaxMessage
   /\ tmsg >= Len(msg_queue)
   /\ work \in 1..MaxMessage
   /\ idleServers \in SUBSET Servers
@@ -264,33 +263,32 @@ THEOREM Spec => []IInv1
    <2>2. SafetyProperty
      <3>1. IsFiniteSet(idleServers)
         <4>1.IsFiniteSet(Servers)
-        BY  SpecAssumption, FS_EmptySet, FS_Subset, FS_AddElement,FS_Interval,FS_Induction  DEF IInv1,Init, TypeInvariant, SafetyProperty
-        <4>2. QED  BY <4>1,SpecAssumption, FS_EmptySet, FS_Subset, FS_AddElement,FS_Interval,FS_Induction  DEF IInv1,Init, TypeInvariant, SafetyProperty
+        BY  SpecAssumption, FS_Interval DEF Init
+        <4>2. QED  BY <4>1, SpecAssumption, FS_EmptySet, FS_Subset DEF Init
      <3>2. IsFiniteSet(busyServers)
-        BY  SpecAssumption, FS_EmptySet, FS_Subset, FS_AddElement,FS_Interval,FS_Induction  DEF IInv1,Init, TypeInvariant
+        BY  SpecAssumption, FS_EmptySet, FS_Subset DEF Init
      <3>3. Cardinality(idleServers) = MinimumServersAlwaysUp
-        BY <3>1,SpecAssumption, FS_EmptySet,FS_Subset, FS_AddElement,FS_Interval DEF IInv1,Init, TypeInvariant, SafetyProperty
+        BY  SpecAssumption, FS_Interval DEF Init
      <3>4. Cardinality(idleServers)+ Cardinality(busyServers) <= MaxServers
-      BY  <3>1,<3>2,<3>3,SpecAssumption, FS_EmptySet, FS_Subset, FS_AddElement,FS_Interval DEF IInv1,Init, TypeInvariant
+      BY  <3>1,<3>2,<3>3,SpecAssumption, FS_EmptySet, FS_Subset DEF Init
      <3>5. Cardinality(idleServers) \in 0..MaxServers
-          BY SpecAssumption, <3>1, FS_EmptySet, FS_Subset, FS_AddElement, FS_Interval DEF Init, TypeInvariant
+         BY SpecAssumption, <3>1, FS_Interval DEF Init
      <3>6. Cardinality(busyServers) \in 0..MaxServers
-        BY SpecAssumption, <3>2, FS_EmptySet, FS_Subset, FS_AddElement DEF Init, TypeInvariant
+        BY SpecAssumption, <3>2, FS_EmptySet DEF Init
      <3>7. \A s \in Servers:serverStatus[s] = "IDLE" => s \in idleServers
-     BY DEF Init
+        BY DEF Init
      <3>8. \A s \in Servers:serverStatus[s] = "BUSY" => s \in busyServers
-     BY DEF Init
+        BY DEF Init
      <3>9. Cardinality(idleServers)+ Cardinality(busyServers) >= MinimumServersAlwaysUp
-        <4>1. Cardinality(busyServers) = 0
+        (*<4>1. Cardinality(busyServers) = 0
          BY  SpecAssumption, FS_EmptySet, FS_Subset DEF IInv1,Init, TypeInvariant
          <4>2. Cardinality(idleServers) = MinimumServersAlwaysUp
          BY SpecAssumption, FS_EmptySet, FS_Subset,FS_AddElement,FS_Interval DEF IInv1,Init, TypeInvariant
-        <4>3. QED BY  <3>1,<3>2,<4>1,<4>2,SpecAssumption, FS_EmptySet, FS_Subset, FS_AddElement,FS_Interval DEF IInv1,Init, TypeInvariant, SafetyProperty
+        <4>3. QED *)BY  <3>1,<3>2,<3>3, SpecAssumption, FS_EmptySet, FS_Subset DEF Init
      
      <3>10. QED
-       BY <3>1, <3>2, <3>3, <3>4, <3>5, <3>6, <3>7, <3>8,<3>9 DEF SafetyProperty
-    \*BY SpecAssumption, FS_EmptySet DEF IInv1, TypeInvariant, SafetyProperty, Init, ServerState, Messages
-   <2>3. QED
+       BY <3>1, <3>2, <3>3, <3>4,<3>5,<3>6,<3>7,<3>8,<3>9 DEF SafetyProperty
+    <2>3. QED
      BY <2>1, <2>2 DEF IInv1
   
 
@@ -360,5 +358,5 @@ THEOREM Spec => []IInv1
           
 =============================================================================
 \* Modification History
-\* Last modified Thu Dec 03 12:22:13 CST 2020 by spadhy
+\* Last modified Thu Dec 03 13:52:17 CST 2020 by spadhy
 \* Created Wed Dec 02 10:37:01 CST 2020 by spadhy

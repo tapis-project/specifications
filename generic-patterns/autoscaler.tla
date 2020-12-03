@@ -56,7 +56,7 @@ TypeInvariant ==
   /\ msg_queue \in Seq(Messages)
   /\ Len(msg_queue) \in 0..MaxMessage
   /\ tmsg \in 0..MaxMessage
-  /\ tmsg + Len(msg_queue)<= 2*MaxMessage
+  \*/\ tmsg + Len(msg_queue)<= 2*MaxMessage
   /\ tmsg >= Len(msg_queue)
   /\ work \in 1..MaxMessage
   /\ idleServers \in SUBSET Servers
@@ -223,7 +223,7 @@ THEOREM Spec => []IInv1
  <1>1. Init => IInv1
    <2> SUFFICES ASSUME Init
                 PROVE  IInv1
-     OBVIOUS
+    OBVIOUS
    <2>1. TypeInvariant
      BY SpecAssumption DEF IInv1, TypeInvariant, Init, MaxServers, ServerState, Messages
    <2>2. SafetyProperty
@@ -296,5 +296,5 @@ THEOREM Spec => []IInv1
           
 =============================================================================
 \* Modification History
-\* Last modified Tue Dec 01 15:44:33 CST 2020 by spadhy
+\* Last modified Thu Dec 03 14:11:18 CST 2020 by spadhy
 \* Created Tue Oct 20 14:31:41 CDT 2020 by spadhy
