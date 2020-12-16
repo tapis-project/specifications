@@ -1,5 +1,5 @@
 ------------------------- MODULE autoscaler_generic -------------------------
-EXTENDS Naturals, FiniteSets, FiniteSetTheorems, Functions, WellFoundedInduction, NaturalsInduction, Sequences, TLAPS
+EXTENDS Naturals, FiniteSets, FiniteSetTheorems, Sequences, TLAPS
 
 CONSTANTS MaxMessage,       \* Maximum number of HTTP requests that are sent
           ScaleUpThreshold,  \* ScaleUpThreshold 
@@ -77,7 +77,7 @@ TypeInvariant ==
 SafetyProperty ==  /\ Cardinality(idleServers) \in 0..MaxServers
                    /\ Cardinality(busyServers) \in 0..MaxServers
                    /\ IsFiniteSet(idleServers)
-                   /\ IsFiniteSet(busyServers)
+                   \*/\ IsFiniteSet(busyServers)
                    /\ Cardinality(idleServers)+ Cardinality(busyServers) <= MaxServers
                    /\ \A s \in Servers:serverStatus[s] = "IDLE" => s \in idleServers
                    /\ \A s \in Servers:serverStatus[s] = "BUSY" => s \in busyServers
@@ -206,7 +206,7 @@ FairSpec == Spec
  
  IInv == TypeInvariant
  
- THEOREM Spec => []IInv
+(* THEOREM Spec => []IInv
 <1>1. Init => IInv
   BY SpecAssumption DEF Init, IInv, TypeInvariant, ServerState
 
@@ -241,7 +241,7 @@ FairSpec == Spec
     BY <2>6 DEF vars
   <2>7. QED
     BY <2>1, <2>2, <2>3, <2>4,<2>6 DEF Next
-<1>. QED  BY <1>1, <1>2, PTL DEF Spec
+<1>. QED  BY <1>1, <1>2, PTL DEF Spec*)
           
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -382,5 +382,5 @@ THEOREM Spec => []IInv1
 
 =============================================================================
 \* Modification History
-\* Last modified Sun Dec 06 17:56:08 CST 2020 by spadhy
+\* Last modified Thu Dec 10 12:48:48 CST 2020 by spadhy
 \* Created Sun Dec 06 17:11:35 CST 2020 by spadhy

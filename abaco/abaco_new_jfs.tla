@@ -94,17 +94,21 @@ AllWorkersOfActorsUseLatestImageVersion == \A a \in Actors: \A x \in actorWorker
         revision_number_for_workers[x] = revision_number[a]         
 
 \* Temporarl properties 
+
 AllWorkersOfActorUseLatestImageVersion_live == <>[](\A a \in Actors: \A x \in actorWorkers[a]:
     revision_number_for_workers[x] = revision_number[a])  
+
 AllWorkersOfActorUseSameImageVersion_live == <>[](\A a \in Actors: \A x, y \in actorWorkers[a]:
     revision_number_for_workers[x] = revision_number_for_workers[y] )     
   
 \* A temporal property: ensures all actor messages are eventually processed 
 \* (i.e., that the actors_msq_queue is eventually 0 from some point until the end of the run.)
+
 AllActorMessagesProcessed == <>[](\A a \in Actors: Len(actor_msg_queues[a]) = 0)    
 
 \* A temporal property: ensures all command messages are eventually processed 
 \* (i.e., that the command_queues is eventually 0 from some point until the end of the run.)
+   
 AllCommandMessagesProcessed == <>[](\A a \in Actors: Len(command_queues[a]) = 0)    
   
 \* A temporal property: ensures all workers are deleted after all executions have been processed.
@@ -389,7 +393,7 @@ FairSpec == Spec
 
 \* Inductive Invariant
 InductiveInvariant == /\ TypeInvariant
-                      /\ AllWorkersOfActorUseSameImageVersion
+                      /\ AllWorkersOfReadyActorsUseLatestImageVersion
 
 THEOREM Init => InductiveInvariant
 <1> SUFFICES ASSUME Init
@@ -432,6 +436,6 @@ THEOREM NextProperty == InductiveInvariant /\ [Next]_vars => InductiveInvariant'
  
 =============================================================================
 \* Modification History
-\* Last modified Sat Oct 10 10:01:18 CDT 2020 by spadhy
+\* Last modified Tue Oct 13 00:04:24 CDT 2020 by spadhy
 \* Last modified Wed Sep 30 22:28:13 CDT 2020 by jstubbs
 \* Created Wed Aug 19 11:19:50 CDT 2020 by spadhy

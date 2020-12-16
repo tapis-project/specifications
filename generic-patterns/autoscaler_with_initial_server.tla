@@ -1,6 +1,6 @@
 ------------------- MODULE autoscaler_with_initial_server -------------------
 
-EXTENDS Naturals, FiniteSets, FiniteSetTheorems, Functions, WellFoundedInduction, NaturalsInduction, Sequences, TLAPS
+EXTENDS Naturals, FiniteSets, FiniteSetTheorems, Sequences, TLAPS
 
 CONSTANTS MaxMessage,       \* Maximum number of HTTP requests that are sent
           ScaleUpThreshold,  \* ScaleUpThreshold 
@@ -118,14 +118,14 @@ Init ==
 HTTP Requests/Synchronous Processing
 *************************************
 *)
-StartServer(s) ==
+(*StartServer(s) ==
     /\ Cardinality(TotalServersRunning) < MinimumServersAlwaysUp
     /\ Cardinality(idleServers) + Cardinality(busyServers) < MaxServers
     /\ serverStatus[s] = "-"
     /\ serverStatus'= [serverStatus EXCEPT ![s] = "IDLE"]     
     /\ idleServers' = idleServers \cup {s}
     /\ UNCHANGED<<Servers,tmsg,msg_queue, work, busyServers>>
-
+*)
 
 APIExecuteRecv(msg, s) ==    
 (*
@@ -358,5 +358,5 @@ THEOREM Spec => []IInv1
           
 =============================================================================
 \* Modification History
-\* Last modified Thu Dec 03 13:52:17 CST 2020 by spadhy
+\* Last modified Thu Dec 10 16:07:35 CST 2020 by spadhy
 \* Created Wed Dec 02 10:37:01 CST 2020 by spadhy

@@ -386,5 +386,5 @@ FairSpec == Spec
 
 =============================================================================
 \* Modification History
-\* Last modified Fri Oct 09 18:29:32 CDT 2020 by spadhy
+\* Last modified Sun Oct 11 12:49:29 CDT 2020 by spadhy
 \* Created Thu Oct 08 12:27:41 CDT 2020 by spadhy
