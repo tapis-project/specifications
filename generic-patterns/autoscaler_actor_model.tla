@@ -24,16 +24,16 @@ ASSUME SpecAssumption ==
 ---------------------------------------------------------------------------------------          
           
 VARIABLES Servers,              \* Total number of servers being created
-          actor_msg_queues,      \* Message queue per actor
+          actor_msg_queues,     \* Message queue per actor
           actorStatus,          \* actor's status
           serverStatus,         \* server status
-          tmsg,             \* total number of message sent
-          work,             \* representation of work,
-          actorServers, 
-          idleServers,      \* Set of Idle servers
-          busyServers       \* Set of Busy servers
+          tmsg,                 \* total number of message sent
+          work,                 \* representation of work
+          actorServers,         \*
+          idleServers,          \* Set of Idle servers
+          busyServers           \* Set of Busy servers
                    
- vars == <<Servers, actor_msg_queues, actorStatus,serverStatus, tmsg, work, actorServers, idleServers, busyServers>>  
+ vars == <<Servers, actor_msg_queues, actorStatus, serverStatus, tmsg, work, actorServers, idleServers, busyServers>>  
  
 \* serverState
 ServerState == {"-","IDLE", "BUSY"}
@@ -65,8 +65,6 @@ Invariants and Temporal Properties
 ***********************************
 *)
 
-\*MaxServers == MaxMessage + 1
-
 \* An invariant: ensures all the variables maintain the proper types.
 TypeInvariant == 
   /\ actorStatus \in [Actors -> ActorState ] 
@@ -82,11 +80,9 @@ TypeInvariant ==
   /\ busyServers \in SUBSET Servers
   /\ \A s2 \in busyServers:serverStatus[s2].status = "BUSY"
   /\ idleServers \intersect busyServers = {} 
-  \*/\ \A s \in Servers, a \in Actors: serverStatus[s].actor = a /\ serverStatus[s].status \in {"IDLE","BUSY"} => s \in actorServers[a]
-  \*/\ \A s1 \in idleServers, a \in Actors: serverStatus[s1].actor = a => s1 \in actorServers[a]
-  \*/\ \A s2 \in busyServers, a \in Actors: serverStatus[s2].actor = a => s2 \in actorServers[a]
+  
 
- TotalServersRunning == idleServers \cup busyServers
+TotalServersRunning == idleServers \cup busyServers
   
 
 SafetyProperty ==  /\ Cardinality(idleServers) \in 0..MaxServers
@@ -98,7 +94,7 @@ SafetyProperty ==  /\ Cardinality(idleServers) \in 0..MaxServers
                    /\ \A s \in Servers:serverStatus[s].status = "BUSY" => s \in busyServers
                    /\ \A a\in Actors: IsFiniteSet(actorServers[a])
                    /\ \A a \in Actors: actorStatus[a]="READY"=>(Cardinality(actorServers[a]) >= MinimumServersAlwaysUpPerActor)
-                   \*/\ Cardinality(idleServers)+ Cardinality(busyServers) >= MinimumServersAlwaysUpPerActor* Cardinality(Actors)
+                   
                    
                   
 
@@ -118,7 +114,7 @@ Initialization of Variables
 
 Init == 
     \*/\ actorStatus = [a \in Actors |-> "READY" ]
-    /\ actorStatus = [a \in Actors |-> "STARTING_UP" ]
+    /\ actorStatus = [a \in Actors |-> "STARTING_UP" ] \* Each Actor is starting up 
     /\ Servers = 1..MaxServers
     /\ serverStatus = [s \in Servers |-> [status|->"-", actor|->"-"]] \* Server has not yet started
     /\ actor_msg_queues = [a \in Actors |-> <<>>]
@@ -135,9 +131,11 @@ HTTP Requests/Synchronous Processing
 *************************************
 *)
 StartServer(s,a) ==
-    /\ Cardinality(actorServers[a]) < MinimumServersAlwaysUpPerActor
-    /\ Cardinality(idleServers) + Cardinality(busyServers) < MaxServers
-    /\ serverStatus[s] = [actor|-> "-", status|->"-"]
+    /\ Cardinality(actorServers[a]) < MinimumServersAlwaysUpPerActor \* Actor does not have minimum number of servers up
+    /\ Cardinality(idleServers) + Cardinality(busyServers) < MaxServers \* Total number of servers created should not exceed MaxServers
+    \*/\ serverStatus[s] = [actor|-> "-", status|->"-"]
+    /\ serverStatus[s].actor = "-"
+    /\ serverStatus[s].status = "-"
     /\ actorStatus[a] = "STARTING_UP"
     /\ serverStatus'= [serverStatus EXCEPT ![s] = [actor|->a, status|->"IDLE"]]     
     /\ idleServers' = idleServers \cup {s}
@@ -170,8 +168,7 @@ Asynchronous Task Processing
     /\ Len(actor_msg_queues[a]) >= ScaleUpThreshold
     /\ ~(\E s1 \in actorServers[a]: serverStatus[s1].status = "IDLE")
     /\ serverStatus[s].status = "-"
-    /\ s \notin actorServers[a] \* required for proofs
-    \*/\ Cardinality(actorServers[a])>= MinimumServersAlwaysUpPerActor \* required for proof
+    /\ s \notin actorServers[a] \* required for the proof 
     /\ Cardinality(idleServers) + Cardinality(busyServers) < MaxServers \* This condition is required for the proof of Safety property
     /\ serverStatus'= [serverStatus EXCEPT ![s] = [actor|->a,status|->"IDLE"]]     
     /\ idleServers' = idleServers \cup {s}
@@ -245,7 +242,7 @@ IInv1 == TypeInvariant /\ SafetyProperty
 
 
  
- THEOREM Spec => []IInv
+THEOREM Spec => []IInv
 <1>1. Init => IInv
   BY SpecAssumption DEF Init, IInv, TypeInvariant, ServerState, ActorState, AllActors, ActorMessage
 
@@ -280,38 +277,11 @@ IInv1 == TypeInvariant /\ SafetyProperty
                NEW a \in Actors, 
                ServerBusy(s,a)
         PROVE IInv'
-        <3>1. actorStatus' \in [Actors -> {"READY","STARTING_UP"}] 
-            BY <2>5 DEF ServerBusy 
-        <3>2. Servers' \in {1..MaxServers}   
-            BY <2>5 DEF ServerBusy   
-        <3>3. serverStatus'
-           \in [Servers' ->
-                  [status : {"-", "IDLE", "BUSY"}, actor : Actors \cup {"-"}]]
-           BY <2>5 DEF ServerBusy         
-       <3>4. actor_msg_queues' \in [Actors->Seq(ActorMessage)]
+        
+        <3>1. work' \in 1..MaxMessage
             BY <2>5 DEF ServerBusy
-        <3>5./\ tmsg' \in 0..MaxMessage
-               /\ \A a2 \in Actors : tmsg' >= Len(actor_msg_queues[a2]')    
-               BY <2>5 DEF ServerBusy
-        <3>6. work' \in 1..MaxMessage
-            BY <2>5 DEF ServerBusy
-        <3>7. actorServers' \in [Actors -> SUBSET Servers']   
-            BY <2>5 DEF ServerBusy            
-      
-        <3>8. idleServers' \in SUBSET Servers'
-             BY <2>5 DEF ServerBusy  
-            
-        <3>9. \A s1 \in idleServers': serverStatus[s1]'.status = "IDLE"  
-              BY <2>5, <3>3, <3>4 DEF ServerBusy
-         <3>10. busyServers' \in SUBSET Servers'
-            BY <2>5 DEF ServerBusy       
-        <3>11.  \A s1 \in busyServers': serverStatus[s1]'.status = "BUSY"  
-            BY <2>5  DEF ServerBusy
-        <3>12. idleServers' \cap busyServers' = {}
-            BY <2>5 DEF ServerBusy  
-            
-        <3>14.QED
-       BY SpecAssumption,<2>5,<3>1, <3>2,<3>3,<3>4,<3>5,<3>6, <3>7,<3>8,<3>9, <3>10, <3>11,<3>12 DEF ServerBusy                          
+        <3>2.QED
+            BY <2>5,<3>1 DEF ServerBusy                          
   <2>6. ASSUME NEW s \in Servers,
                NEW a \in Actors,
                StopServer(s, a)
@@ -396,42 +366,32 @@ THEOREM Spec => []IInv1
         <3>2. IsFiniteSet(idleServers')
             BY <2>1, <3>1,FS_EmptySet, FS_AddElement, FS_Subset DEF StartServer
         <3>3. IsFiniteSet(busyServers')
-            BY <2>1, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF StartServer
+            BY <2>1, FS_EmptySet, FS_Subset DEF StartServer
         <3>4. Cardinality(idleServers') = Cardinality(idleServers) + 1
-            <4>1. IsFiniteSet(idleServers)
-                 BY <2>1, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF StartServer
-           
-            <4>2. idleServers' = idleServers \cup {s}
-             BY <2>1,<3>1,<3>2, FS_EmptySet, FS_Subset, FS_AddElement DEF StartServer 
+            (*<4>1. IsFiniteSet(idleServers)
+                 BY <2>1, FS_EmptySet, FS_AddElement, FS_Subset DEF StartServer*)
+            (*<4>2. idleServers' = idleServers \cup {s}
+             BY <2>1,<3>1,<3>2 DEF StartServer 
             <4>3. s \notin idleServers
-            BY <2>1, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF StartServer
-            <4>4. QED 
-                 BY <2>1,<3>1,<3>2,<4>1,<4>2,<4>3, FS_EmptySet, FS_Subset, FS_AddElement DEF StartServer        
+            BY <2>1 DEF StartServer*)
+           \* <4>4. QED 
+                 BY <2>1,<3>1,<3>2, FS_EmptySet, FS_Subset, FS_AddElement DEF StartServer        
         <3>5. Cardinality(idleServers') \in 0..MaxServers
-           <4>1.idleServers' \in SUBSET Servers'
-           BY <2>1 DEF StartServer
-           <4>2. Cardinality(Servers') = MaxServers
-           BY <2>1, FS_Interval DEF StartServer
-           <4>3. Cardinality(idleServers') <= MaxServers \*Cardinality(Servers')
-                BY <2>1,<3>1,<3>2,<4>1,<4>2, FS_EmptySet, FS_Subset DEF StartServer
-           
-           <4>5. QED 
-                BY  <2>1,<3>1,<3>2,<3>4,<4>1,<4>2,<4>3,FS_EmptySet, FS_Interval,FS_AddElement, FS_Subset,FS_FiniteSubsetsOfFinite DEF StartServer
-        
+             BY  <2>1,<3>1,<3>2,<3>4, FS_EmptySet, FS_Interval,FS_AddElement, FS_Subset DEF StartServer
         <3>6. Cardinality(busyServers') \in 0..MaxServers
             BY  <2>1,<3>2,FS_EmptySet,FS_AddElement, FS_Subset DEF StartServer
         <3>7. Cardinality(idleServers') + Cardinality(busyServers') <= MaxServers
-            BY <2>1, <3>1, <3>2,<3>3,<3>4,<3>5, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF StartServer
-        <3>8.  \A s1 \in Servers': serverStatus'[s1].status = "IDLE" => s1 \in idleServers'
-          
-               BY <2>1 DEF StartServer
+            BY <2>1, <3>1, <3>2,<3>3,<3>4,<3>5, FS_EmptySet, FS_Subset DEF StartServer
+        (*<3>8.  \A s1 \in Servers': serverStatus'[s1].status = "IDLE" => s1 \in idleServers'
+            BY <2>1 DEF StartServer
         <3>9. \A s2 \in Servers':serverStatus'[s2].status = "BUSY" => s2 \in busyServers'
-                   BY <2>1, <3>1, <3>2,<3>3,<3>4,<3>5, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF StartServer
+                   BY <2>1 DEF StartServer
+                   *)
         <3>10. \A a1 \in Actors: IsFiniteSet(actorServers'[a1]) 
-            BY <2>1, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF StartServer     
+            BY <2>1, FS_EmptySet, FS_Interval,FS_AddElement, FS_Subset DEF StartServer     
         <3>11.\A a1 \in Actors: actorStatus'[a1]="READY"=>(Cardinality(actorServers'[a1]) >= MinimumServersAlwaysUpPerActor)
-             BY <2>1, <3>9,FS_EmptySet, FS_AddElement, FS_Subset DEF StartServer     
-        <3>12. QED BY <2>1, <3>1, <3>2,<3>3,<3>4,<3>5, <3>6, <3>7,<3>8,<3>9,<3>10,<3>11, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF StartServer   
+             BY <2>1 DEF StartServer     
+        <3>12. QED BY <2>1, <3>1, <3>2,<3>3,<3>4,<3>5, <3>6, <3>7,<3>10,<3>11, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF StartServer   
   <2>2. ASSUME NEW msg \in ActorMessage,
                NEW a \in Actors,
                APIExecuteRecv(msg, a)
@@ -446,19 +406,18 @@ THEOREM Spec => []IInv1
        <3>1. IsFiniteSet(Servers')
             BY <2>3, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CreateServer 
         <3>2. IsFiniteSet(idleServers')
-            BY <2>3, <3>1,FS_EmptySet, FS_AddElement, FS_Subset DEF CreateServer
+            BY <2>3, <3>1, FS_EmptySet, FS_AddElement, FS_Subset DEF CreateServer
         <3>3. IsFiniteSet(busyServers')
-            BY <2>3, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CreateServer
+            BY <2>3, FS_EmptySet, FS_Subset DEF CreateServer
         <3>4. Cardinality(idleServers') = Cardinality(idleServers) + 1
-            <4>1. IsFiniteSet(idleServers)
-                 BY <2>3, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CreateServer
-           
+            (*<4>1. IsFiniteSet(idleServers)
+                 BY <2>3, FS_EmptySet, FS_AddElement, FS_Subset DEF CreateServer*)
             <4>2. idleServers' = idleServers \cup {s}
-             BY <2>3,<3>1,<3>2, FS_EmptySet, FS_Subset, FS_AddElement DEF CreateServer 
+             BY <2>3,<3>1,<3>2, FS_EmptySet, FS_Subset, FS_AddElement DEF CreateServer
             <4>3. s \notin idleServers
             BY <2>3, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CreateServer
             <4>4. QED 
-                 BY <2>1,<3>1,<3>2,<4>1,<4>2,<4>3, FS_EmptySet, FS_Subset, FS_AddElement DEF CreateServer        
+                 BY <2>1,<3>1,<3>2,<4>2,<4>3, FS_EmptySet, FS_Subset, FS_AddElement DEF CreateServer        
         <3>5. Cardinality(idleServers') \in 0..MaxServers
            <4>1. idleServers' \in SUBSET Servers'
            BY <2>3 DEF CreateServer
@@ -467,29 +426,30 @@ THEOREM Spec => []IInv1
            <4>3. Cardinality(idleServers') <= MaxServers \*Cardinality(Servers')
                 BY <2>3,<3>1,<3>2,<4>1,<4>2, FS_EmptySet, FS_Subset DEF CreateServer
            <4>4. QED 
-                BY  <2>3,<3>1,<3>2,<3>4,<4>1,<4>2,<4>3,FS_EmptySet, FS_Interval,FS_AddElement, FS_Subset,FS_FiniteSubsetsOfFinite DEF CreateServer
+                BY  <2>3,<3>1,<3>2,<3>4,<4>1,<4>2,<4>3,FS_EmptySet, FS_Interval,FS_AddElement, FS_Subset DEF CreateServer
         
         <3>6. Cardinality(busyServers') \in 0..MaxServers
             BY  <2>3,<3>2,FS_EmptySet,FS_AddElement, FS_Subset DEF CreateServer
         <3>7. Cardinality(idleServers') + Cardinality(busyServers') <= MaxServers
             BY <2>3, <3>1, <3>2,<3>3,<3>4,<3>5, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CreateServer
-        <3>8.  \A s1 \in Servers': serverStatus'[s1].status = "IDLE" => s1 \in idleServers'
-            BY <2>3 DEF CreateServer
-        <3>9. \A s2 \in Servers':serverStatus'[s2].status = "BUSY" => s2 \in busyServers'
-                   BY <2>3, <3>1, <3>2,<3>3,<3>4,<3>5, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CreateServer
-        <3>10. \A a1 \in Actors: IsFiniteSet(actorServers'[a1]) 
-            BY <2>3, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CreateServer    
+        (*<3>8.  \A s1 \in Servers': serverStatus'[s1].status = "IDLE" => s1 \in idleServers'
+            BY <2>3 DEF CreateServer*)
+        (*<3>9. \A s2 \in Servers':serverStatus'[s2].status = "BUSY" => s2 \in busyServers'
+                   BY <2>3, <3>1, <3>2,<3>3,<3>4,<3>5, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CreateServer*)
+        (*<3>10. \A a1 \in Actors: IsFiniteSet(actorServers'[a1]) 
+            BY <2>3, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CreateServer *)   
         <3>11.Cardinality(actorServers'[a]) =  Cardinality(actorServers[a]) + 1
             <4>1. \A a1 \in Actors: IsFiniteSet(actorServers[a1]) 
             BY <2>3, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CreateServer 
             <4>2. QED 
             BY <2>3,<4>1,FS_EmptySet, FS_AddElement, FS_Subset DEF CreateServer 
+            
         <3>12. \A a1 \in Actors: actorStatus'[a1]="READY"=>(Cardinality(actorServers'[a1]) >= MinimumServersAlwaysUpPerActor)
-             BY <2>3, <3>10, <3>1,<3>11,  FS_EmptySet,FS_AddElement, FS_CardinalityType, FS_Subset DEF CreateServer 
-             
+             BY <2>3, <3>1, <3>11, FS_EmptySet,FS_AddElement, FS_CardinalityType, FS_Subset DEF CreateServer 
+            
         <3>13. TypeInvariant' 
              BY <2>3 DEF CreateServer       
-        <3>20. QED BY <2>3, <3>1, <3>2,<3>3,<3>4,<3>5, <3>6, <3>7,<3>8,<3>9,<3>10,<3>11, <3>12, <3>13,FS_EmptySet, FS_Interval, FS_CardinalityType, FS_AddElement, FS_Subset DEF CreateServer   
+        <3>20. QED BY <2>3, <3>1, <3>2,<3>3,<3>4,<3>5, <3>6,<3>7,<3>11,<3>12, <3>13,FS_EmptySet, FS_Interval, FS_CardinalityType, FS_AddElement, FS_Subset DEF CreateServer   
   
   
   <2>4. ASSUME NEW s \in Servers,
@@ -531,7 +491,7 @@ THEOREM Spec => []IInv1
         <3>8. \A s1 \in Servers': serverStatus'[s1].status = "IDLE" => s1 \in idleServers'
             BY <2>5 DEF ServerBusy  
         <3>9. \A s2 \in Servers':serverStatus'[s2].status = "BUSY" => s2 \in busyServers'
-             BY <2>5 DEF ServerBusy   
+             BY <2>5 DEF ServerBusy
         <3>10. serverStatus'
            \in [Servers' ->
                   [status : {"-", "IDLE", "BUSY"}, actor : Actors \cup {"-"}]]
@@ -542,44 +502,45 @@ THEOREM Spec => []IInv1
              BY <2>5 DEF ServerBusy  
         <3>13. idleServers' \cap busyServers' = {}
             BY <2>5 DEF ServerBusy   
-        <3>14. QED BY <2>5, <3>1, <3>2,<3>3, <3>4,<3>5, <3>6,<3>7,<3>8, <3>9,<3>10,<3>11,<3>12,<3>13,FS_EmptySet, FS_AddElement, FS_RemoveElement, FS_Subset DEF ServerBusy
+        <3>14. QED BY <2>5, <3>1, <3>2, <3>3, <3>4, <3>5, <3>6, <3>7, <3>8, <3>9, <3>10, <3>11, <3>12, <3>13, FS_EmptySet, FS_AddElement, FS_RemoveElement, FS_Subset DEF ServerBusy
   
   <2>6. ASSUME NEW s \in Servers,
                  NEW a \in Actors,
                StopServer(s,a)
         PROVE  IInv1'
          <3>1. IsFiniteSet(idleServers')
-            BY <2>6, FS_EmptySet, FS_Subset DEF StopServer
+            BY <2>6,FS_EmptySet, FS_Subset DEF StopServer
         <3>2. IsFiniteSet(busyServers')
-            BY <2>6, FS_EmptySet, FS_AddElement, FS_Subset DEF StopServer
+            BY <2>6 DEF StopServer
         <3>3. Cardinality(busyServers') = Cardinality(busyServers)
-            BY <2>6, <3>2,FS_EmptySet, FS_AddElement, FS_Subset DEF StopServer 
+            BY <2>6 DEF StopServer 
         <3>4. Cardinality(idleServers') =  Cardinality(idleServers) - 1
             BY <2>6,<3>1, FS_EmptySet, FS_RemoveElement, FS_Subset DEF StopServer
         <3>5. Cardinality(idleServers')+ Cardinality(busyServers') <= MaxServers
-            BY <2>6, <3>1, <3>2,<3>3,<3>4     
+            BY <2>6, <3>1, <3>2, <3>3, <3>4     
         <3>6. Cardinality(busyServers') \in 0..MaxServers
          BY  <2>6, <3>2,<3>3, <3>5,FS_EmptySet, FS_Interval,FS_Subset   
         <3>7. Cardinality(idleServers') \in 0..MaxServers 
-               BY  <2>6,<3>1, <3>4, <3>5,FS_EmptySet,FS_AddElement, FS_Interval,FS_Subset  
-        <3>8. \A s1 \in Servers': serverStatus'[s1].status = "IDLE" => s1 \in idleServers'
+               BY  <2>6,<3>1, <3>4, <3>5, FS_EmptySet, FS_Subset, FS_Interval 
+        (*<3>8. \A s1 \in Servers': serverStatus'[s1].status = "IDLE" => s1 \in idleServers'
             BY <2>6 DEF StopServer  
         <3>9. \A s2 \in Servers':serverStatus'[s2].status = "BUSY" => s2 \in busyServers'
              BY <2>6 DEF StopServer 
+             *)
         <3>10. \A a1 \in Actors: IsFiniteSet(actorServers'[a1]) 
             BY <2>6, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF StopServer    
         <3>11.Cardinality(actorServers'[a]) =  Cardinality(actorServers[a]) - 1
             <4>1. \A a1 \in Actors: IsFiniteSet(actorServers[a1]) 
-            BY <2>6, FS_EmptySet, FS_Interval, FS_RemoveElement, FS_Subset DEF StopServer 
+            BY <2>6, FS_EmptySet, FS_Subset DEF StopServer 
             <4>2. s \in actorServers[a]
             BY <2>6  DEF StopServer
             <4>3. QED 
-            BY <2>6,<4>1,<4>2,FS_EmptySet, FS_RemoveElement, FS_Subset,FS_CardinalityType DEF StopServer 
+            BY <2>6,<4>1,<4>2,FS_EmptySet, FS_RemoveElement, FS_Subset DEF StopServer 
         <3>12. \A a1 \in Actors: actorStatus'[a1]="READY"=>(Cardinality(actorServers'[a1]) >= MinimumServersAlwaysUpPerActor)
-             BY <2>6, <3>10, <3>1,<3>11,  FS_EmptySet,FS_RemoveElement, FS_CardinalityType, FS_Subset DEF StopServer           
+             BY <2>6, <3>10, <3>1,<3>11,  FS_EmptySet,FS_RemoveElement, FS_Subset, FS_CardinalityType DEF StopServer      \* CardinalityType is Required     
         <3>13. TypeInvariant' 
              BY <2>6 DEF StopServer 
-        <3>20. QED BY <2>6, <3>1, <3>2,<3>3,<3>4,<3>5,<3>6,<3>7,<3>8,<3>9,<3>10,<3>11,<3>12,<3>13, FS_EmptySet,FS_Interval,FS_AddElement, FS_RemoveElement, FS_CardinalityType, FS_Subset DEF StopServer
+        <3>20. QED BY <2>6, <3>1, <3>2,<3>4,<3>5,<3>6,<3>7,<3>10,<3>11,<3>12,<3>13, FS_EmptySet,FS_Interval,FS_AddElement, FS_RemoveElement, FS_CardinalityType, FS_Subset DEF StopServer
   <2>7. CASE UNCHANGED vars
         BY <2>7 DEF vars
   <2>8. QED
@@ -589,5 +550,5 @@ THEOREM Spec => []IInv1
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Dec 16 14:09:49 CST 2020 by spadhy
+\* Last modified Fri Dec 18 15:36:22 CST 2020 by spadhy
 \* Created Mon Dec 07 11:36:52 CST 2020 by spadhy
