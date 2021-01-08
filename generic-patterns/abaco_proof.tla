@@ -2,12 +2,12 @@
 
 EXTENDS Naturals, FiniteSets, FiniteSetTheorems, Sequences, TLAPS
 
-CONSTANTS MaxMessage,       \* Maximum number of HTTP requests that are sent
+CONSTANTS MaxMessage,        \* Maximum number of HTTP requests that are sent
           ScaleUpThreshold,  \* ScaleUpThreshold 
           MinimumWorkersAlwaysUpPerActor,  \* Minimum number of workers should always be running per actor
           MaxWorkers,           \* Maximum Number of workers that can be created
           Actors
-         \* ImageVersion        
+                
           
             
 ASSUME SpecAssumption == 
@@ -36,8 +36,7 @@ VARIABLES Workers,              \* Total number of workers being created
           actorWorkers,         \*
           idleworkers,          \* Set of Idle workers
           busyworkers,           \* Set of Busy workers
-          \*currentImageVersion,   \* current image version for each actor
-          \*currentImageVersionForWorkers, \* Imahe version used by each worker
+         
           revision_number,
           revision_number_for_workers 
                    
@@ -221,7 +220,7 @@ The enabling condition is the actorStatus value (UPDATING_IMAGE) which is set wh
    \*    /\ actorWorkers[a] = {} \* TODO --- what about workerStatus function? workers still active and assigned to actors there.
    \*  /\ \A w \in actorWorkers[a]: currentImageVersionForWorkers[w]=currentImageVersion[a]
     /\ \A w \in actorWorkers[a]: revision_number_for_workers[w] = revision_number[a]
-    /\ Cardinality(actorWorkers[a]) >= MinimumWorkersAlwaysUpPerActor
+    /\ Cardinality(actorWorkers[a]) >= MinimumWorkersAlwaysUpPerActor \* This condition is required so when number of workers always up false below the threshold MinimumWorkersAlwaysUpPerActor, createworkers is called before updating the actor's status from updating_imag to ready
     /\ actorStatus' = [actorStatus EXCEPT ![a] = "READY"]
     /\ command_queues' = [command_queues EXCEPT ![a] = Tail(command_queues[a])]
     /\ UNCHANGED<<actor_msg_queues,worker_command_queues,tmsg,workerStatus,
@@ -235,7 +234,9 @@ Represents internal processing that occurrs when the autoscaler determines that 
 \* change #2 - we enable a worker to be deleted if it is IDLE and does not have the most recent image:
     \*/\ actorStatus[a] = "SHUTTING_DOWN" \/ ( (workerStatus[w].status = "IDLE" \/ workerStatus[w].status = "FINISHED") /\ currentImageVersionForWorkers[w] # currentImageVersion[a] )
     /\ actorStatus[a] ="UPDATING_IMAGE" 
-    /\ workerStatus[w].status = "IDLE"/\ (revision_number_for_workers[w] # revision_number[a]) 
+    /\ workerStatus[w].status = "IDLE"
+    /\ workerStatus[w].actor = a \* for proof
+    /\ revision_number_for_workers[w] # revision_number[a]
     \*/\ workerStatus[w].status # "-"
    \* /\ workerStatus[w].status # "SHUTDOWN_REQUESTED"
     /\ w \in actorWorkers[a]
@@ -259,6 +260,7 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
     /\ Head(worker_command_queues[w]).message = "SHUTDOWN"
     /\ workerStatus[w].status = "SHUTDOWN_REQUESTED"
     /\ w \in actorWorkers[a]
+    /\ (actorStatus[a]="READY"/\ Cardinality(actorWorkers[a]) > MinimumWorkersAlwaysUpPerActor) \/ actorStatus[a]="UPDATING_IMAGE" \* note the change in condition for the proof
     /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->"-", status|->"-"]]
     /\ worker_command_queues' = [worker_command_queues EXCEPT ![w] = Tail(worker_command_queues[w])]
     /\ actorWorkers'=  [actorWorkers EXCEPT ![a] = actorWorkers[a] \ {w}]
@@ -269,7 +271,7 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
  
  Createworker(s, a) ==
     /\ actorStatus[a]= "READY" \/ actorStatus[a]="UPDATING_IMAGE"
-    /\ (Len(actor_msg_queues[a]) >= ScaleUpThreshold) \/ (Cardinality(actorWorkers[a]) < MinimumWorkersAlwaysUpPerActor)
+    /\ (Len(actor_msg_queues[a]) >= ScaleUpThreshold) \/ (actorStatus[a]="UPDATING_IMAGE"/\ Cardinality(actorWorkers[a]) < MinimumWorkersAlwaysUpPerActor)
     /\ ~(\E s1 \in actorWorkers[a]: workerStatus[s1].status = "IDLE")
     /\ workerStatus[s].status = "-"
     /\ s \notin actorWorkers[a] \* required for the proof 
@@ -310,7 +312,6 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
  Stopworker(w,a) == 
     /\  Len(actor_msg_queues[a]) = 0
     /\  revision_number_for_workers[w] = revision_number[a]
-    \*/\  workerStatus[s] = [actor|-> a, status|->"IDLE"]
     /\  workerStatus[w].actor = a
     /\  workerStatus[w].status = "IDLE"
     /\  Cardinality({w1 \in actorWorkers[a]:workerStatus[w1].status="IDLE" }) > MinimumWorkersAlwaysUpPerActor \* note the change in the condition. a worker can be in actorWorkers set but in SHUTDOWN_REQUESTED Status
@@ -319,8 +320,6 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
     /\  workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"SHUTDOWN_REQUESTED"]]
     /\  worker_command_queues' = [worker_command_queues EXCEPT ![w] = Append(worker_command_queues[w], [type |->"COMMAND", message |->"SHUTDOWN"])]
     /\  idleworkers' = idleworkers \ {w}
-   \* /\  workerStatus'= [workerStatus EXCEPT ![w] = [actor|-> "-", status|->"-"]]
-   \* /\  actorWorkers'= [actorWorkers EXCEPT ![a] =  actorWorkers[a] \ {w}]
     /\  UNCHANGED<<Workers,actorStatus, tmsg,actor_msg_queues, work, busyworkers,actorWorkers, command_queues, revision_number, revision_number_for_workers>>
     
  Next == 
@@ -368,7 +367,7 @@ THEOREM Spec => []IInv
                       [Next]_vars
                PROVE  IInv'
     OBVIOUS
-  <2>. USE SpecAssumption DEF Init, IInv, TypeInvariant, workerState, ActorState, AllActors, ActorMessage
+  <2>. USE SpecAssumption DEF Init, IInv, TypeInvariant, workerState, ActorState, AllActors, ActorMessage, CommandMessage,WorkerMessage
   <2>1. ASSUME NEW msg \in ActorMessage,
         NEW a \in Actors,
                APIExecuteRecv(msg,a)
@@ -402,11 +401,103 @@ THEOREM Spec => []IInv
                NEW a \in Actors,
                Stopworker(s, a)
         PROVE IInv'
-     BY <2>6 DEF Stopworker         
-  <2>7. CASE UNCHANGED vars
-    BY <2>7 DEF vars
-  <2>8. QED
-    BY <2>1,<2>2,<2>3,<2>4,<2>5,<2>6,<2>7 DEF Next
+       (*<3>1. actorStatus' \in [Actors -> ActorState ] 
+            BY <2>6 DEF Stopworker
+        <3>2. Workers' \in {1..MaxWorkers}
+            BY <2>6 DEF Stopworker*)
+        (*<3>3. workerStatus' \in [Workers -> [status:workerState,actor:AllActors]] 
+             BY <2>6 DEF Stopworker*)
+        (*<3>4. actor_msg_queues' \in [Actors->Seq(ActorMessage)]
+             BY <2>6 DEF Stopworker
+        <3>5. command_queues' \in [Actors -> Seq(CommandMessage)] \* multiple queues
+             BY <2>6 DEF Stopworker *)
+        <3>6. worker_command_queues' \in [Workers -> Seq(WorkerMessage)] \* multiple queues
+             BY <2>6 DEF Stopworker
+        (*<3>7. tmsg' \in 0..MaxMessage
+             BY <2>6 DEF Stopworker
+        <3>8. \A a1 \in Actors: tmsg >= Len(actor_msg_queues[a1])
+             BY <2>6 DEF Stopworker *)
+       (* <3>9. work' \in 1..MaxMessage
+             BY <2>6 DEF Stopworker*)
+        (*<3>10. actorWorkers' \in [Actors -> SUBSET Workers']
+             BY <2>6 DEF Stopworker
+        <3>11. idleworkers' \in SUBSET Workers
+             BY <2>6 DEF Stopworker
+        <3>12. \A s1 \in idleworkers':workerStatus[s1]'.status = "IDLE"
+             BY <2>6 DEF Stopworker
+        <3>13. busyworkers' \in SUBSET Workers'
+             BY <2>6 DEF Stopworker
+             *)(*
+        <3>14. \A s2 \in busyworkers':workerStatus[s2]'.status = "BUSY"
+             BY <2>6 DEF Stopworker
+        <3>15. idleworkers' \intersect busyworkers' = {} 
+             BY <2>6 DEF Stopworker
+        <3>16. revision_number' \in [Actors -> Nat]
+         BY <2>6 DEF Stopworker
+        <3>17. revision_number_for_workers' \in [Workers' -> Nat] 
+         BY <2>6 DEF Stopworker*)
+        <3>18 QED  
+     BY <2>6,
+     (*<3>1,*)(*<3>2,*)(*<3>3,*)(*<3>4,*)(*<3>5,*)<3>6(*<3>7,<3>8,*)(*<3>9*)(*<3>10,<3>11,<3>12,<3>13,*)(*<3>14,<3>15,<3>16,*)(* <3>17*) DEF Stopworker         
+  <2>7. ASSUME NEW msg \in CommandMessage,
+        NEW a \in Actors,
+        ActorUpdateRecv(msg, a) 
+        PROVE IInv'
+        BY <2>7 DEF ActorUpdateRecv
+  <2>8.  ASSUME NEW  a\in Actors,
+         UpdateActor(a)
+         PROVE IInv'
+     BY <2>8 DEF UpdateActor    
+  <2>9.   ASSUME NEW  a \in Actors,
+          NEW w \in Workers,
+            StartDeleteWorker(w,a)  
+            PROVE IInv'
+         (*<3>1. actorStatus' \in [Actors -> ActorState ] 
+             BY <2>9 DEF StartDeleteWorker 
+        <3>2. Workers' \in {1..MaxWorkers}
+             BY <2>9 DEF StartDeleteWorker 
+        <3>3. workerStatus' \in [Workers -> [status:workerState,actor:AllActors]] 
+              BY <2>9 DEF StartDeleteWorker 
+        <3>4. actor_msg_queues' \in [Actors->Seq(ActorMessage)]
+              BY <2>9 DEF StartDeleteWorker 
+        <3>5. command_queues' \in [Actors -> Seq(CommandMessage)] \* multiple queues
+              BY <2>9 DEF StartDeleteWorker *)
+        <3>6. worker_command_queues' \in [Workers -> Seq(WorkerMessage)] \* multiple queues
+              BY <2>9 DEF StartDeleteWorker 
+        (*<3>7. tmsg' \in 0..MaxMessage
+              BY <2>9 DEF StartDeleteWorker 
+        <3>8. \A a1 \in Actors: tmsg >= Len(actor_msg_queues[a1])
+              BY <2>9 DEF StartDeleteWorker 
+        <3>9. work' \in 1..MaxMessage
+              BY <2>9 DEF StartDeleteWorker 
+        <3>10. actorWorkers' \in [Actors -> SUBSET Workers']
+              BY <2>9 DEF StartDeleteWorker 
+        <3>11. idleworkers' \in SUBSET Workers
+              BY <2>9 DEF StartDeleteWorker 
+        <3>12. \A s1 \in idleworkers':workerStatus[s1]'.status = "IDLE"
+              BY <2>9 DEF StartDeleteWorker 
+        <3>13. busyworkers' \in SUBSET Workers'
+              BY <2>9 DEF StartDeleteWorker 
+        <3>14. \A s2 \in busyworkers':workerStatus[s2]'.status = "BUSY"
+              BY <2>9 DEF StartDeleteWorker 
+        <3>15. idleworkers' \intersect busyworkers' = {} 
+             BY <2>9 DEF StartDeleteWorker 
+        <3>16. revision_number' \in [Actors -> Nat]
+          BY <2>9 DEF StartDeleteWorker 
+        <3>17. revision_number_for_workers' \in [Workers' -> Nat] 
+         BY <2>9 DEF StartDeleteWorker *)
+        <3>18 QED  
+     BY <2>9,(*<3>1,<3>2,<3>3,<3>4,<3>5,*)<3>6(*,<3>7,<3>8,<3>9,<3>10,<3>11,<3>12,<3>13,<3>14,<3>15,<3>16, <3>17*) DEF StartDeleteWorker    
+           
+   <2>10. ASSUME NEW  a \in Actors,
+          NEW w \in Workers,
+            CompleteDeleteWorker(w,a)  
+            PROVE IInv'
+         BY <2>10 DEF CompleteDeleteWorker                 
+  <2>12. CASE UNCHANGED vars
+    BY <2>12 DEF vars
+  <2>13. QED
+    BY <2>1,<2>2,<2>3,<2>4,<2>5,<2>6,<2>7, <2>8,<2>9,<2>10,<2>12 DEF Next
     
 <1>. QED  BY <1>1, <1>2, PTL DEF Spec
 
@@ -472,7 +563,7 @@ THEOREM Spec => []IInv1
                       [Next]_vars
                PROVE  IInv1'
     BY DEF IInv1, SafetyProperty
-  <2>.USE SpecAssumption DEF IInv1, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalworkersRunning, AllActors  
+  <2>.USE SpecAssumption DEF IInv1, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalworkersRunning, AllActors, CommandMessage, WorkerMessage  
   <2>1. ASSUME NEW s \in Workers,
             NEW a \in Actors,
                Startworker(s,a)
@@ -484,14 +575,7 @@ THEOREM Spec => []IInv1
         <3>3. IsFiniteSet(busyworkers')
             BY <2>1, FS_EmptySet, FS_Subset DEF Startworker
         <3>4. Cardinality(idleworkers') = Cardinality(idleworkers) + 1
-            (*<4>1. IsFiniteSet(idleworkers)
-                 BY <2>1, FS_EmptySet, FS_AddElement, FS_Subset DEF Startworker*)
-            (*<4>2. idleworkers' = idleworkers \cup {s}
-             BY <2>1,<3>1,<3>2 DEF Startworker 
-            <4>3. s \notin idleworkers
-            BY <2>1 DEF Startworker*)
-           \* <4>4. QED 
-                 BY <2>1,<3>1,<3>2, FS_EmptySet, FS_Subset, FS_AddElement DEF Startworker        
+            BY <2>1,<3>1,<3>2, FS_EmptySet, FS_Subset, FS_AddElement DEF Startworker        
         <3>5. Cardinality(idleworkers') \in 0..MaxWorkers
              BY  <2>1,<3>1,<3>2,<3>4, FS_EmptySet, FS_Interval,FS_AddElement, FS_Subset DEF Startworker
         <3>6. Cardinality(busyworkers') \in 0..MaxWorkers
@@ -548,24 +632,30 @@ THEOREM Spec => []IInv1
             BY  <2>3,<3>2,FS_EmptySet,FS_AddElement, FS_Subset DEF Createworker
         <3>7. Cardinality(idleworkers') + Cardinality(busyworkers') <= MaxWorkers
             BY <2>3, <3>1, <3>2,<3>3,<3>4,<3>5, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF Createworker
-        (*<3>8.  \A s1 \in workers': workerStatus'[s1].status = "IDLE" => s1 \in idleworkers'
-            BY <2>3 DEF Createworker*)
-        (*<3>9. \A s2 \in workers':workerStatus'[s2].status = "BUSY" => s2 \in busyworkers'
-                   BY <2>3, <3>1, <3>2,<3>3,<3>4,<3>5, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF Createworker*)
-        (*<3>10. \A a1 \in Actors: IsFiniteSet(actorWorkers'[a1]) 
-            BY <2>3, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF Createworker *)   
+        <3>8.  \A s1 \in Workers': workerStatus'[s1].status = "IDLE" => s1 \in idleworkers'
+            BY <2>3 DEF Createworker
+        <3>9. \A s2 \in Workers':workerStatus'[s2].status = "BUSY" => s2 \in busyworkers'
+                   BY <2>3, <3>1, <3>2,<3>3,<3>4,<3>5, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF Createworker
+        <3>10. \A a1 \in Actors: IsFiniteSet(actorWorkers'[a1]) 
+            BY <2>3, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF Createworker    
         <3>11.Cardinality(actorWorkers'[a]) =  Cardinality(actorWorkers[a]) + 1
-            <4>1. \A a1 \in Actors: IsFiniteSet(actorWorkers[a1]) 
+            <4>1. IsFiniteSet(actorWorkers[a]) 
             BY <2>3, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF Createworker 
-            <4>2. QED 
-            BY <2>3,<4>1,FS_EmptySet, FS_AddElement, FS_Subset DEF Createworker 
+            <4>2. s \notin actorWorkers[a]
+            BY <2>3 DEF Createworker 
+            <4>3. actorWorkers'[a] = actorWorkers[a] \cup {s}
+            BY <2>3 DEF Createworker 
+            <4>4. IsFiniteSet(actorWorkers'[a])
+            BY <2>3,FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF Createworker 
+            <4>5. QED 
+            BY <2>3,<3>10,<4>1,<4>2,<4>3,<4>4,FS_EmptySet, FS_Interval,FS_AddElement, FS_CardinalityType, FS_Subset DEF Createworker
             
         <3>12. \A a1 \in Actors: actorStatus'[a1]="READY"=>(Cardinality(actorWorkers'[a1]) >= MinimumWorkersAlwaysUpPerActor)
-             BY <2>3, <3>1, <3>11, FS_EmptySet,FS_AddElement, FS_CardinalityType, FS_Subset DEF Createworker 
+             BY <2>3, <3>1, <3>11,FS_EmptySet,FS_AddElement, FS_CardinalityType, FS_Subset DEF Createworker 
             
         <3>13. TypeInvariant' 
              BY <2>3 DEF Createworker       
-        <3>20. QED BY <2>3, <3>1, <3>2,<3>3,<3>4,<3>5, <3>6,<3>7,<3>11,<3>12, <3>13,FS_EmptySet, FS_Interval, FS_CardinalityType, FS_AddElement, FS_Subset DEF Createworker   
+        <3>20. QED BY <2>3, <3>1, <3>2,<3>3,<3>4,<3>5, <3>6,<3>7,<3>8,<3>9,<3>10,<3>12, <3>13,FS_EmptySet, FS_Interval, FS_CardinalityType, FS_AddElement, FS_Subset DEF Createworker   
   
   
   <2>4. ASSUME NEW s \in Workers,
@@ -610,7 +700,7 @@ THEOREM Spec => []IInv1
              BY <2>5 DEF workerBusy
         <3>10. workerStatus'
            \in [Workers' ->
-                  [status : {"-", "IDLE", "BUSY"}, actor : Actors \cup {"-"}]]
+                  [status : workerState, actor : Actors \cup {"-"}]]
            BY <2>5 DEF workerBusy         
         <3>11. work' \in 1..MaxMessage
             BY <2>5 DEF workerBusy
@@ -645,27 +735,229 @@ THEOREM Spec => []IInv1
              *)
         <3>10. \A a1 \in Actors: IsFiniteSet(actorWorkers'[a1]) 
             BY <2>6, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF Stopworker    
-        <3>11.Cardinality(actorWorkers'[a]) =  Cardinality(actorWorkers[a]) - 1
-            <4>1. \A a1 \in Actors: IsFiniteSet(actorWorkers[a1]) 
-            BY <2>6, FS_EmptySet, FS_Subset DEF Stopworker 
-            <4>2. s \in actorWorkers[a]
-            BY <2>6  DEF Stopworker
-            <4>3. QED 
-            BY <2>6,<4>1,<4>2,FS_EmptySet, FS_RemoveElement, FS_Subset DEF Stopworker 
+        
         <3>12. \A a1 \in Actors: actorStatus'[a1]="READY"=>(Cardinality(actorWorkers'[a1]) >= MinimumWorkersAlwaysUpPerActor)
-             BY <2>6, <3>10, <3>1,<3>11,  FS_EmptySet,FS_RemoveElement, FS_Subset, FS_CardinalityType DEF Stopworker      \* CardinalityType is Required     
-        <3>13. TypeInvariant' 
+             BY <2>6, <3>10, <3>1,FS_EmptySet,FS_RemoveElement, FS_Subset, FS_CardinalityType DEF Stopworker      \* CardinalityType is Required     
+        
+        <3>14. TypeInvariant'  
+           (*<4>1. actorStatus' \in [Actors -> ActorState ] 
+            BY <2>6 DEF Stopworker
+           <4>2. Workers' \in {1..MaxWorkers}
+            BY <2>6 DEF Stopworker*)
+           <4>3. workerStatus' \in [Workers -> [status:workerState,actor:AllActors]] 
+             BY <2>6 DEF Stopworker
+           (*<4>4. actor_msg_queues' \in [Actors->Seq(ActorMessage)]
+             BY <2>6 DEF Stopworker
+           <4>5. command_queues' \in [Actors -> Seq(CommandMessage)] \* multiple queues
+             BY <2>6 DEF Stopworker *)
+           <4>6. worker_command_queues' \in [Workers -> Seq(WorkerMessage)] \* multiple queues
+             BY <2>6 DEF Stopworker
+           (*<4>7. tmsg' \in 0..MaxMessage
+             BY <2>6 DEF Stopworker
+           <4>8. \A a1 \in Actors: tmsg >= Len(actor_msg_queues[a1])
              BY <2>6 DEF Stopworker 
-        <3>20. QED BY <2>6, <3>1, <3>2,<3>4,<3>5,<3>6,<3>7,<3>10,<3>11,<3>12,<3>13, FS_EmptySet,FS_Interval,FS_AddElement, FS_RemoveElement, FS_CardinalityType, FS_Subset DEF Stopworker
-  <2>7. CASE UNCHANGED vars
-        BY <2>7 DEF vars
-  <2>8. QED
-    BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>6,<2>7 DEF Next
+           <4>9. work' \in 1..MaxMessage
+             BY <2>6 DEF Stopworker
+           <4>10. actorWorkers' \in [Actors -> SUBSET Workers']
+             BY <2>6 DEF Stopworker
+           <4>11. idleworkers' \in SUBSET Workers
+             BY <2>6 DEF Stopworker
+           <4>12. \A s1 \in idleworkers':workerStatus[s1]'.status = "IDLE"
+             BY <2>6 DEF Stopworker
+           <4>13. busyworkers' \in SUBSET Workers'
+             BY <2>6 DEF Stopworker
+             
+           <4>14. \A s2 \in busyworkers':workerStatus[s2]'.status = "BUSY"
+             BY <2>6 DEF Stopworker*)
+           <4>15. idleworkers' \intersect busyworkers' = {} 
+             BY <2>6 DEF Stopworker
+           (*<4>16. revision_number' \in [Actors -> Nat]
+           BY <2>6 DEF Stopworker
+           <4>17. revision_number_for_workers' \in [Workers' -> Nat] 
+            BY <2>6 DEF Stopworker*)
+           <4>18 QED  
+            BY <2>6,
+             (*<4>1,<4>2,*)<4>3,(*<4>4,*)(*<4>5,*)<4>6,(*<4>7,<4>8,*)(*<4>9,<4>10,*)(*<4>11,<4>12,*)(*<4>13,<4>14,*)<4>15(*<4>16, <4>17*) DEF Stopworker  
+       <3>20. QED BY <2>6, <3>1, <3>2,<3>4,<3>5,<3>6,<3>7,<3>10,<3>12,<3>14, FS_EmptySet,FS_Interval,FS_AddElement, FS_RemoveElement, FS_CardinalityType, FS_Subset DEF Stopworker
+  <2>7. ASSUME NEW msg \in CommandMessage,
+        NEW a \in Actors,
+        ActorUpdateRecv(msg, a) 
+        PROVE IInv1'
+        <3>1. TypeInvariant'
+        BY <2>7 DEF ActorUpdateRecv
+        <3>2. SafetyProperty'
+         BY <2>7 DEF ActorUpdateRecv
+        <3>10. QED
+        BY <2>7, <3>1,<3>2,FS_EmptySet,FS_Interval,FS_AddElement, FS_RemoveElement, FS_Subset DEF ActorUpdateRecv
+        (*<3>1. actorStatus' \in [Actors -> ActorState ] 
+             BY <2>7 DEF ActorUpdateRecv 
+        <3>2. Workers' \in {1..MaxWorkers}
+             BY <2>7 DEF ActorUpdateRecv
+        <3>3. workerStatus' \in [Workers -> [status:workerState,actor:AllActors]] 
+              BY <2>7 DEF ActorUpdateRecv 
+        <3>4. actor_msg_queues' \in [Actors->Seq(ActorMessage)]
+              BY <2>7 DEF ActorUpdateRecv 
+        <3>5. command_queues' \in [Actors -> Seq(CommandMessage)] \* multiple queues
+              BY <2>7 DEF ActorUpdateRecv
+        <3>6. worker_command_queues' \in [Workers -> Seq(WorkerMessage)] \* multiple queues
+              BY <2>7 DEF ActorUpdateRecv 
+        <3>7. tmsg' \in 0..MaxMessage
+              BY <2>7 DEF ActorUpdateRecv
+        <3>8. \A a1 \in Actors: tmsg >= Len(actor_msg_queues[a1])
+              BY <2>7 DEF ActorUpdateRecv
+        <3>9. work' \in 1..MaxMessage
+              BY <2>7 DEF ActorUpdateRecv
+        <3>10. actorWorkers' \in [Actors -> SUBSET Workers']
+              BY <2>7 DEF ActorUpdateRecv
+        <3>11. idleworkers' \in SUBSET Workers
+              BY <2>7 DEF ActorUpdateRecv
+        <3>12. \A s1 \in idleworkers':workerStatus[s1]'.status = "IDLE"
+              BY <2>7 DEF ActorUpdateRecv
+        <3>13. busyworkers' \in SUBSET Workers'
+              BY <2>7 DEF ActorUpdateRecv
+        <3>14. \A s2 \in busyworkers':workerStatus[s2]'.status = "BUSY"
+              BY <2>7 DEF ActorUpdateRecv
+        <3>15. idleworkers' \intersect busyworkers' = {} 
+             BY <2>7 DEF ActorUpdateRecv
+        <3>16. revision_number' \in [Actors -> Nat]
+          BY <2>7 DEF ActorUpdateRecv
+        <3>17. revision_number_for_workers' \in [Workers' -> Nat] 
+         BY <2>7 DEF ActorUpdateRecv 
+          <3>18. IsFiniteSet(idleworkers')
+            BY <2>7,FS_EmptySet, FS_Subset DEF ActorUpdateRecv
+        <3>19. IsFiniteSet(busyworkers')
+            BY <2>7 DEF ActorUpdateRecv
+        <3>20. Cardinality(busyworkers') = Cardinality(busyworkers)
+            BY <2>7 DEF ActorUpdateRecv
+        <3>21. Cardinality(idleworkers') =  Cardinality(idleworkers)
+            BY <2>7,<3>1, FS_EmptySet, FS_RemoveElement, FS_Subset DEF ActorUpdateRecv
+        <3>22. Cardinality(idleworkers')+ Cardinality(busyworkers') <= MaxWorkers
+            BY <2>7, <3>18, <3>19, <3>20, <3>21    
+        <3>23. Cardinality(busyworkers') \in 0..MaxWorkers
+         BY  <2>7, <3>19,<3>20, <3>22,FS_EmptySet, FS_Interval,FS_Subset   
+        <3>24. Cardinality(idleworkers') \in 0..MaxWorkers 
+               BY  <2>7,<3>18, <3>21, <3>22, FS_EmptySet, FS_Subset, FS_Interval 
+        (*<3>8. \A s1 \in workers': workerStatus'[s1].status = "IDLE" => s1 \in idleworkers'
+            BY <2>6 DEF Stopworker  
+        <3>9. \A s2 \in workers':workerStatus'[s2].status = "BUSY" => s2 \in busyworkers'
+             BY <2>6 DEF Stopworker 
+             *)
+        <3>27. \A a1 \in Actors: IsFiniteSet(actorWorkers'[a1]) 
+            BY <2>7, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF ActorUpdateRecv  
+        
+        <3>28. \A a1 \in Actors: actorStatus'[a1]="READY"=>(Cardinality(actorWorkers'[a1]) >= MinimumWorkersAlwaysUpPerActor)
+             BY <2>7, <3>27, <3>18,FS_EmptySet,FS_RemoveElement, FS_Subset, FS_CardinalityType DEF ActorUpdateRecv      \* CardinalityType is Required     
+         
+        <3>29 QED  
+     BY <2>7,<3>1,<3>2,<3>3,<3>4,<3>5,<3>6,<3>7,<3>8,<3>9,<3>10,<3>11,<3>12,<3>13,<3>14,<3>15,<3>16, <3>17, <3>18, <3>19,<3>20, <3>21,<3>22,<3>23,<3>24,<3>27,<3>28, FS_EmptySet, FS_AddElement, FS_Interval, FS_Subset, FS_CardinalityType  DEF ActorUpdateRecv*)
+ <2>8. ASSUME NEW a \in Actors,
+       UpdateActor(a)
+       PROVE IInv1'
+        <3>1. TypeInvariant'
+        BY <2>8 DEF UpdateActor
+        <3>2. SafetyProperty'
+         BY <2>8 DEF UpdateActor
+        <3>10. QED
+      BY <2>8, <3>1,<3>2,FS_EmptySet,FS_Interval,FS_AddElement, FS_RemoveElement, FS_CardinalityType, FS_Subset DEF UpdateActor 
+  <2>9.  ASSUME NEW w \in Workers, 
+        NEW a \in Actors,
+         StartDeleteWorker(w,a) 
+         PROVE IInv1'
+        <3>1. IsFiniteSet(idleworkers')
+            BY <2>9,FS_EmptySet, FS_Subset DEF StartDeleteWorker
+        <3>2. IsFiniteSet(busyworkers')
+            BY <2>9 DEF StartDeleteWorker
+        <3>3. Cardinality(busyworkers') = Cardinality(busyworkers)
+            BY <2>9 DEF StartDeleteWorker 
+        <3>4. Cardinality(idleworkers') =  Cardinality(idleworkers) - 1
+            BY <2>9,<3>1, FS_EmptySet, FS_RemoveElement, FS_Subset DEF StartDeleteWorker
+        <3>5. Cardinality(idleworkers')+ Cardinality(busyworkers') <= MaxWorkers
+            BY <2>9, <3>1, <3>2, <3>3, <3>4     
+        <3>6. Cardinality(busyworkers') \in 0..MaxWorkers
+         BY  <2>9, <3>2,<3>3, <3>5,FS_EmptySet, FS_Interval,FS_Subset   
+        <3>7. Cardinality(idleworkers') \in 0..MaxWorkers 
+               BY  <2>9,<3>1, <3>4, <3>5, FS_EmptySet, FS_Subset, FS_Interval 
+        <3>8. \A s1 \in Workers': workerStatus'[s1].status = "IDLE" => s1 \in idleworkers'
+            BY <2>9 DEF StartDeleteWorker 
+        <3>9. \A s2 \in Workers':workerStatus'[s2].status = "BUSY" => s2 \in busyworkers'
+             BY <2>9 DEF StartDeleteWorker 
+             
+        <3>10. \A a1 \in Actors: IsFiniteSet(actorWorkers'[a1]) 
+            BY <2>9, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF StartDeleteWorker  
+        
+        <3>12. \A a1 \in Actors: actorStatus'[a1]="READY"=>(Cardinality(actorWorkers'[a1]) >= MinimumWorkersAlwaysUpPerActor)
+             BY <2>9, <3>10, <3>1,FS_EmptySet,FS_RemoveElement, FS_Subset, FS_CardinalityType DEF StartDeleteWorker     \* CardinalityType is Required     
+        
+        
+        <3>16. TypeInvariant'  
+           
+           <4>1. workerStatus' \in [Workers -> [status:workerState,actor:AllActors]] 
+             BY <2>9 DEF StartDeleteWorker
+           
+           <4>2. worker_command_queues' \in [Workers -> Seq(WorkerMessage)] \* multiple queues
+             BY <2>9 DEF StartDeleteWorker
+          
+           <4>3. idleworkers' \intersect busyworkers' = {} 
+            BY <2>9 DEF StartDeleteWorker
+           <4>4 QED  
+            BY <2>9,<4>1,<4>2,<4>3 DEF StartDeleteWorker
+       <3>17. QED
+            BY <2>9, <3>1,<3>2, <3>3,<3>4,<3>5,<3>6,<3>7,<3>8,<3>9,<3>10,<3>12,<3>16,FS_EmptySet,FS_Interval,FS_AddElement, FS_RemoveElement, FS_CardinalityType, FS_Subset DEF StartDeleteWorker   
+  <2>10. ASSUME NEW  a \in Actors,
+          NEW w \in Workers,
+            CompleteDeleteWorker(w,a)  
+            PROVE IInv1'
+        
+    
+     <3>1. IsFiniteSet(idleworkers')
+            BY <2>10,FS_EmptySet, FS_Subset DEF CompleteDeleteWorker
+        <3>2. IsFiniteSet(busyworkers')
+            BY <2>10 DEF CompleteDeleteWorker
+        <3>3. Cardinality(busyworkers') = Cardinality(busyworkers)
+            BY <2>10 DEF CompleteDeleteWorker
+        <3>4. Cardinality(idleworkers') =  Cardinality(idleworkers)
+            BY <2>10,<3>1, FS_EmptySet, FS_RemoveElement, FS_Subset DEF CompleteDeleteWorker
+        <3>5. Cardinality(idleworkers')+ Cardinality(busyworkers') <= MaxWorkers
+            BY <2>10, <3>1, <3>2, <3>3, <3>4     
+        <3>6. Cardinality(busyworkers') \in 0..MaxWorkers
+         BY  <2>10, <3>2,<3>3, <3>5,FS_EmptySet, FS_Interval,FS_Subset   
+        <3>7. Cardinality(idleworkers') \in 0..MaxWorkers 
+               BY  <2>10,<3>1, <3>4, <3>5, FS_EmptySet, FS_Subset, FS_Interval 
+        <3>8. \A s1 \in Workers': workerStatus'[s1].status = "IDLE" => s1 \in idleworkers'
+            BY <2>10 DEF CompleteDeleteWorker
+        <3>9. \A s2 \in Workers':workerStatus'[s2].status = "BUSY" => s2 \in busyworkers'
+             BY <2>10 DEF CompleteDeleteWorker 
+             
+        <3>10. \A a1 \in Actors: IsFiniteSet(actorWorkers'[a1]) 
+            BY <2>10, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CompleteDeleteWorker
+        <3>11.Cardinality(actorWorkers'[a]) =  Cardinality(actorWorkers[a]) - 1
+            <4>1. IsFiniteSet(actorWorkers[a]) 
+            BY <2>10, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CompleteDeleteWorker  
+            <4>2. w \in actorWorkers[a]
+            BY <2>10 DEF CompleteDeleteWorker  
+            <4>3. actorWorkers'[a] = actorWorkers[a] \ {w}
+            BY <2>10 DEF CompleteDeleteWorker  
+            <4>4. IsFiniteSet(actorWorkers'[a])
+            BY <2>10,FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CompleteDeleteWorker  
+            <4>5. QED 
+            BY <2>10,<3>10,<4>1,<4>2,<4>3,<4>4,FS_EmptySet, FS_Interval,FS_RemoveElement, FS_CardinalityType, FS_Subset DEF CompleteDeleteWorker 
+        <3>12. \A a1 \in Actors: actorStatus'[a1]="READY"=>(Cardinality(actorWorkers'[a1]) >= MinimumWorkersAlwaysUpPerActor)
+             BY <2>10, <3>10, <3>1,<3>11,FS_EmptySet,FS_RemoveElement, FS_Subset, FS_CardinalityType DEF CompleteDeleteWorker
+       
+         <3>15. TypeInvariant'
+         BY <2>10 DEF CompleteDeleteWorker 
+     <3>16. QED
+       BY <2>10, <3>1,<3>2, <3>3,<3>5,<3>4, <3>6,<3>7,<3>8,<3>9,<3>10,<3>12,<3>15,FS_EmptySet,FS_Interval,FS_AddElement, FS_RemoveElement, FS_CardinalityType, FS_Subset DEF CompleteDeleteWorker    
+        
+  <2>15. CASE UNCHANGED vars
+        BY <2>15 DEF vars
+  <2>16. QED
+    BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>6,<2>7,<2>8,<2>9,<2>10,<2>15 DEF Next
  
 <1>. QED  BY <1>1, <1>2, PTL DEF Spec
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Jan 04 17:33:15 CST 2021 by spadhy
+\* Last modified Thu Jan 07 18:14:45 CST 2021 by spadhy
 \* Created Mon Dec 07 11:36:52 CST 2020 by spadhy
 
