@@ -40,9 +40,10 @@ VARIABLES Workers,              \* Total number of workers being created
           revision_number,
           revision_number_for_workers 
                    
+ 
+ 
  vars == <<Workers, actor_msg_queues, command_queues, worker_command_queues, actorStatus, workerStatus, 
- tmsg, work, actorWorkers, idleworkers, busyworkers,revision_number,
-          revision_number_for_workers>>  
+ tmsg, work, actorWorkers, idleworkers, busyworkers,revision_number, revision_number_for_workers>>  
  
 \* workerState
 workerState == {"-","IDLE", "BUSY", "SHUTDOWN_REQUESTED", "FINISHED"}
@@ -117,29 +118,43 @@ SafetyProperty ==  /\ Cardinality(idleworkers) \in 0..MaxWorkers
                    /\ \A a \in Actors: actorStatus[a]="READY"=>(Cardinality(actorWorkers[a]) >= MinimumWorkersAlwaysUpPerActor)
                    
                    
-
-    
-AllWorkersOfReadyActorsUseSameImageVersion == \A a \in Actors: \A w1, w2 \in actorWorkers[a]: 
+(*
+ TLAPS not able to proof the following safety properties. They represent the same safe property in different form     
+ 1. AllWorkersOfReadyActorsUseSameImageVersion == \A a \in Actors: \A w1, w2 \in actorWorkers[a]: 
     actorStatus[a] = "READY" => 
     revision_number_for_workers[w1] = revision_number_for_workers[w2]  
-    
- (*AllWorkersOfReadyActorsUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorkers[a]: 
+ 
+ 2. AllWorkersOfReadyActorsUseSameImageVersion == \A a \in Actors: \A x, y \in actorWorkers[a]: 
     actorStatus[a] = "READY" /\ workerStatus[x].status = "IDLE" /\ workerStatus[y].status = "IDLE" => 
-    revision_number_for_workers[x] = revision_number_for_workers[y]  *)   
+    revision_number_for_workers[x] = revision_number_for_workers[y]   
+ *)   
+ 
+  
+  AllWorkersOfReadyActorsUseSameImageVersion ==  \A w1,w2 \in Workers:
+(( workerStatus[w1].actor=workerStatus[w2].actor)/\( workerStatus[w1].actor # "-")/\ ( workerStatus[w2].actor # "-") /\ (workerStatus[w1].status \notin {"-","SHUTDOWN_REQUESTED"})/\(workerStatus[w2].status \notin {"-","SHUTDOWN_REQUESTED"}) /\ ((actorStatus[workerStatus[w1].actor]="STARTING_UP")\/(actorStatus[workerStatus[w1].actor]="READY"))/\((actorStatus[workerStatus[w2].actor]="STARTING_UP")\/(actorStatus[workerStatus[w2].actor]="READY"))) =>  revision_number_for_workers[w1] = revision_number_for_workers[w2] 
     
-(*AllWorkersOfReadyActorsUseLatestImageVersion == \A a \in Actors: \A x \in actorWorkers[a]: 
+ 
+    
+(* TLAPS not able to proof the following safety properties. They represent the same safe property in different form.
+ The reason TLAPS is not able to reason that actorWorkers set contains workers with status IDLE, BUSY, SHUTDOWN_REQUESTED
+ Also, there is two quantifiers in the predicate that TLAPS can resolve
+ 
+1. AllWorkersOfReadyActorsUseLatestImageVersion == \A a \in Actors: \A x \in actorWorkers[a]: 
     actorStatus[a] = "READY" (*/\ workerStatus[x].status = "IDLE"*) => 
-    revision_number_for_workers[x] = revision_number[a]  *) 
+    revision_number_for_workers[x] = revision_number[a]   
     
- (*AllWorkersOfReadyActorsUseLatestImageVersion == \A a \in Actors:
-    (actorStatus[a] = "READY" \/ actorStatus[a] = "STARTING_UP") => 
-     \A w \in actorWorkers[a]: revision_number_for_workers[w] = revision_number[a] *)  
+2. AllWorkersOfReadyActorsUseLatestImageVersion == \A a \in Actors: 
+    (actorStatus[a] = "READY" \/ actorStatus[a] = "STARTING_UP") => (\A w \in actorWorkers[a]: (workerStatus[w].status \notin {"-","SHUTDOWN_REQUESTED"}=>revision_number_for_workers[w] = revision_number[a] ) )
+ *)
  
- (* An alternative way to previous statement *)    
+ (* An alternative way to previous statement -- correct safety property *)    
+
 AllWorkersOfReadyActorsUseLatestImageVersion == \A w \in Workers:(( workerStatus[w].actor # "-") /\ (workerStatus[w].status \notin {"-","SHUTDOWN_REQUESTED"}) /\ ((actorStatus[workerStatus[w].actor]="STARTING_UP")\/(actorStatus[workerStatus[w].actor]="READY"))) =>  revision_number_for_workers[w] = revision_number[workerStatus[w].actor]        
-                    
-SafetyProperty2 == AllWorkersOfReadyActorsUseLatestImageVersion 
+                   
+SafetyProperty2 == /\ AllWorkersOfReadyActorsUseLatestImageVersion
+                   /\ AllWorkersOfReadyActorsUseSameImageVersion
  
+
 \* A temporal property: ensures all messages are eventually processed 
 \* (i.e., that the length of msq_queue is eventually 0 
 \* from some point until the end of the run.)
@@ -175,25 +190,33 @@ HTTP Requests/Synchronous Processing
 *************************************
 *)
 
+(*
+ 
+Creates Minimum number of workers for each actor when the system bootstraps
+
+*)
+
 Startworker(w,a) ==
     /\ Cardinality(actorWorkers[a]) < MinimumWorkersAlwaysUpPerActor     \* Actor does not have minimum number of workers up
     /\ Cardinality(idleworkers) + Cardinality(busyworkers) < MaxWorkers \* Total number of workers created should not exceed Maxworkers
-    /\ workerStatus[w].actor = "-"
+    /\ workerStatus[w].actor = "-"        \* For proof, represent each element of the record instead of record notation workerStatus[w]=[actor|-> "-",status|->"-" ]
     /\ workerStatus[w].status = "-"
     /\ actorStatus[a] = "STARTING_UP"
-    /\ revision_number[a] = 1
-    /\ revision_number_for_workers[w]=0
+    /\ revision_number[a] = 1             \* revision_number for actor set to 1 and for workers set to 0. So, when a worker is created revision number is set to 1.
+    /\ revision_number_for_workers[w] = 0
     /\ workerStatus'= [workerStatus EXCEPT ![w] = [actor|->a, status|->"IDLE"]]     
     /\ idleworkers' = idleworkers \cup {w}
     /\ actorWorkers'= [actorWorkers EXCEPT ![a] =  actorWorkers[a] \cup {w}]
-    /\ revision_number_for_workers' = [revision_number_for_workers EXCEPT ![w] = revision_number[a]]\*revision_number_for_workers[w]+1]
-    /\ UNCHANGED<<Workers,actorStatus, tmsg, actor_msg_queues, work, busyworkers, command_queues, worker_command_queues ,revision_number(*,revision_number_for_workers*)>>
+    /\ revision_number_for_workers' = [revision_number_for_workers EXCEPT ![w] = revision_number[a]] \* This could have been revision_number_for_workers[w]+1] as it is part of the bootstrap but for consistency and safety property proof, we made it equal to revision_number[a]
+    /\ UNCHANGED<<Workers,actorStatus, tmsg, actor_msg_queues, work, busyworkers, command_queues, worker_command_queues ,revision_number>>
 
-
+(*
+Update Actor status from STARTING_UP to READY when minimum number of actors have been created for the actor
+*)
 UpdateActorStatus(a) ==
     /\ actorStatus[a] = "STARTING_UP"
     /\ Cardinality(actorWorkers[a])= MinimumWorkersAlwaysUpPerActor
-    /\ actorStatus'= [actorStatus EXCEPT ![a] = "READY"]
+    /\ actorStatus'= [actorStatus EXCEPT ![a] = "READY"]  \* This could have been merged with previous step. We divided it into two steps for ease of proof
     /\ UNCHANGED<<Workers,tmsg, actor_msg_queues, work, busyworkers, command_queues, worker_command_queues ,revision_number,revision_number_for_workers,actorWorkers, idleworkers, workerStatus>>
 
 
@@ -242,21 +265,26 @@ The enabling condition is the actorStatus value (UPDATING_IMAGE) which is set wh
     /\ Len(command_queues[a]) > 0
     /\ Head(command_queues[a]).type = "UPDATE"
     /\ actorStatus[a] = "UPDATING_IMAGE"
-    \*/\ \A w \in actorWorkers[a]: revision_number_for_workers[w] = revision_number[a] <- Cannot able to proof
+    \*/\ \A w \in actorWorkers[a]: revision_number_for_workers[w] = revision_number[a] <- TLAPS cannot able to proof, mostly because actorWorkers contains Workers with status IDLE, BUSY, SHUTDOWN_REQUESTED. 
+    \* In that case, revision_number_for_workers[w] = revision_number[a] may not be true for SHUTDOWN_REQUESTED status. However, this step is enabled when all workers in actorWorkers with SHUTDOWN_REQUESTED
+    \* status are stopped and released to the pool of workers.
+    \* The following condition allows Actor status going from UPDATING_IMAGE to READY if for workers of the actor status's are not "-" or "SHUTDOWN_REQUESTED" that is the status is IDLE or BUSY,
+    \* revision number used by worker should be equal to revision number of the actor
     
     /\ \A w \in Workers: (workerStatus[w].actor = a /\ workerStatus[w].status \notin {"-","SHUTDOWN_REQUESTED"})=> (revision_number_for_workers[w] = revision_number[workerStatus[w].actor])   \* an alternative to previous step      
-    /\ Cardinality(actorWorkers[a]) >= MinimumWorkersAlwaysUpPerActor \* This condition is required so when number of workers always up falls below the threshold MinimumWorkersAlwaysUpPerActor, createworkers is called before updating the actor's status from updating_image to ready
+    /\ Cardinality(actorWorkers[a]) >= MinimumWorkersAlwaysUpPerActor \* This condition is required so when number of workers always up falls below the threshold MinimumWorkersAlwaysUpPerActor,
+    \* createworkers is called before updating the actor's status from UPDATING_IMAGE to READY
     /\ actorStatus' = [actorStatus EXCEPT ![a] = "READY"]
     /\ command_queues' = [command_queues EXCEPT ![a] = Tail(command_queues[a])]
     /\ UNCHANGED<<actor_msg_queues,worker_command_queues,tmsg,workerStatus,
        actorWorkers, Workers, revision_number, revision_number_for_workers,busyworkers, idleworkers, work>>
 
+
 StartDeleteWorker(w,a) ==
 (*
 Represents internal processing that occurrs when the autoscaler determines that a worker should be deleted.
 *)
-\* change #2 - we enable a worker to be deleted if it is IDLE and does not have the most recent image:
-    \*/\ actorStatus[a] = "SHUTTING_DOWN" \/ ( (workerStatus[w].status = "IDLE" \/ workerStatus[w].status = "FINISHED") /\ currentImageVersionForWorkers[w] # currentImageVersion[a] )
+\* change #2 - we enable a worker to be deleted if it is IDLE and does not have the most recent image revision number:
     /\ actorStatus[a] = "UPDATING_IMAGE" 
     /\ workerStatus[w].status = "IDLE"
     /\ workerStatus[w].actor = a \* for proof
@@ -289,7 +317,7 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
  
  Createworker(s, a) ==
     /\ actorStatus[a]= "READY" \/ actorStatus[a]="UPDATING_IMAGE"
-    /\ (Len(actor_msg_queues[a]) >= ScaleUpThreshold) \/ (actorStatus[a]="UPDATING_IMAGE"/\ Cardinality(actorWorkers[a]) < MinimumWorkersAlwaysUpPerActor)
+    /\ (Len(actor_msg_queues[a]) >= ScaleUpThreshold) \/ (actorStatus[a]="UPDATING_IMAGE"/\ Cardinality(actorWorkers[a]) < MinimumWorkersAlwaysUpPerActor) \* Condition modified for proof
     /\ ~(\E s1 \in actorWorkers[a]: workerStatus[s1].status = "IDLE")
     /\ workerStatus[s].status = "-"
     /\ s \notin actorWorkers[a] \* required for the proof 
@@ -338,7 +366,7 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
     /\  UNCHANGED<<Workers,actorStatus, tmsg,actor_msg_queues, work, busyworkers,actorWorkers, command_queues, revision_number, revision_number_for_workers>>
     
  Next == 
-       \/ \E s \in Workers, a \in Actors: Startworker(s, a)
+       \/ \E w \in Workers, a \in Actors: Startworker(w, a)
        \/ \E a \in Actors: UpdateActorStatus(a)
        \/ \E msg \in ActorMessage, a \in Actors: APIExecuteRecv(msg, a)
        \/ \E msg \in CommandMessage, a \in Actors: ActorUpdateRecv(msg, a)
@@ -367,7 +395,7 @@ FairSpec == Spec
 (* ~~~~~~ For TLC to check inductive invariant ~~~~~~~ *)
  
 MySeq(P) == UNION {[1..n -> P] : n \in 0..MaxMessage}   
-
+\* unable to model check with the safety properties as it involves revision numbers in Nat.
 -----------------------------------------------------------------------------------------------
 
 (********************************************** Inductive Invariant Proof *****************************************)
@@ -520,7 +548,7 @@ THEOREM Spec => []IInv1
                       [Next]_vars
                PROVE  IInv1'
     BY DEF IInv1, SafetyProperty
-  <2>.USE SpecAssumption DEF IInv1, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalworkersRunning, AllActors, CommandMessage, WorkerMessage  
+  <2>.USE SpecAssumption DEF IInv1, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalworkersRunning, AllActors, CommandMessage, WorkerMessage
   <2>1. ASSUME NEW s \in Workers,
             NEW a \in Actors,
                Startworker(s,a)
@@ -812,7 +840,11 @@ THEOREM Spec => []IInv1
  
 <1>. QED  BY <1>1, <1>2, PTL DEF Spec
 
-(*--------------------------------------------- Inductive Invariant 2 Proof ------------------------*)
+(* 
+--------------------------------------------------------------------------------------------------
+--------------------------------------------- Inductive Invariant 2 Proof ------------------------
+--------------------------------------------------------------------------------------------------
+*)
 
 IInv2 == TypeInvariant /\ SafetyProperty /\ SafetyProperty2   
 
@@ -862,7 +894,7 @@ THEOREM Spec => []IInv2
                       [Next]_vars
                PROVE  IInv2'
     BY DEF IInv2, SafetyProperty, SafetyProperty2
-  <2>.USE SpecAssumption DEF IInv2, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalworkersRunning, AllActors, CommandMessage, WorkerMessage,SafetyProperty2,AllWorkersOfReadyActorsUseLatestImageVersion     
+  <2>.USE SpecAssumption DEF IInv2, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalworkersRunning, AllActors, CommandMessage, WorkerMessage,SafetyProperty2,AllWorkersOfReadyActorsUseLatestImageVersion, AllWorkersOfReadyActorsUseSameImageVersion       
   <2>1. ASSUME NEW w \in Workers,
             NEW a \in Actors,
                Startworker(w,a)
@@ -876,7 +908,7 @@ THEOREM Spec => []IInv2
         <3>4. Cardinality(idleworkers') = Cardinality(idleworkers) + 1
             BY <2>1,<3>1,<3>2, FS_EmptySet, FS_Subset, FS_AddElement DEF Startworker        
         <3>5. Cardinality(idleworkers') \in 0..MaxWorkers
-             BY  <2>1,<3>1,<3>2,<3>4, FS_EmptySet, FS_Interval,FS_AddElement, FS_Subset DEF Startworker
+            BY  <2>1,<3>1,<3>2,<3>4, FS_EmptySet, FS_Interval,FS_AddElement, FS_Subset DEF Startworker
         <3>6. Cardinality(busyworkers') \in 0..MaxWorkers
             BY  <2>1,<3>2,FS_EmptySet,FS_AddElement, FS_Subset DEF Startworker
         <3>7. Cardinality(idleworkers') + Cardinality(busyworkers') <= MaxWorkers
@@ -889,22 +921,21 @@ THEOREM Spec => []IInv2
         <3>10. \A a1 \in Actors: IsFiniteSet(actorWorkers'[a1]) 
             BY <2>1, FS_EmptySet, FS_Interval,FS_AddElement, FS_Subset DEF Startworker     
         <3>11.\A a1 \in Actors: actorStatus'[a1]="READY"=>(Cardinality(actorWorkers'[a1]) >= MinimumWorkersAlwaysUpPerActor)
-             BY <2>1 DEF Startworker 
+            BY <2>1 DEF Startworker 
         <3>12. TypeInvariant'
              <4>1. workerStatus' \in [Workers -> [status:workerState,actor:AllActors]] 
-            BY <2>1 DEF Startworker
+                BY <2>1 DEF Startworker
             <4>2. worker_command_queues' \in [Workers -> Seq(WorkerMessage)] \* multiple queues
-             BY <2>1 DEF Startworker
+                BY <2>1 DEF Startworker
             <4>3. idleworkers' \intersect busyworkers' = {} 
-              BY <2>1 DEF Startworker
+                BY <2>1 DEF Startworker
             <4>4 QED  
-            BY <2>1, <4>1,<4>2,<4>3 DEF Startworker 
+                BY <2>1, <4>1,<4>2,<4>3 DEF Startworker 
                  
         <3>13. SafetyProperty2'         
-        
-         BY <2>1 DEF Startworker  
-         
+           BY <2>1 DEF Startworker  
         <3>14. QED BY <2>1, <3>1, <3>2,<3>3,<3>4,<3>5, <3>6, <3>7,<3>10,<3>11,<3>12,<3>13, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset, FS_CardinalityType DEF Startworker   
+  
   <2>2. ASSUME NEW msg \in ActorMessage,
                NEW a \in Actors,
                APIExecuteRecv(msg, a)
@@ -916,7 +947,7 @@ THEOREM Spec => []IInv2
                Createworker(w,a)
         PROVE  IInv2'
          
-       <3>1. IsFiniteSet(Workers')
+        <3>1. IsFiniteSet(Workers')
             BY <2>3, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF Createworker 
         <3>2. IsFiniteSet(idleworkers')
             BY <2>3, <3>1, FS_EmptySet, FS_AddElement, FS_Subset DEF Createworker
@@ -967,15 +998,15 @@ THEOREM Spec => []IInv2
              BY <2>3, <3>1, <3>11,FS_EmptySet,FS_AddElement, FS_CardinalityType, FS_Subset DEF Createworker 
             
         <3>13. TypeInvariant' 
-          <4>1. workerStatus' \in [Workers -> [status:workerState,actor:AllActors]] 
+            <4>1. workerStatus' \in [Workers -> [status:workerState,actor:AllActors]] 
             BY <2>3 DEF Createworker  
             <4>2. worker_command_queues' \in [Workers -> Seq(WorkerMessage)] \* multiple queues
              BY <2>3 DEF Createworker  
             <4>3. idleworkers' \intersect busyworkers' = {} 
               BY <2>3 DEF Createworker  
             <4>4 QED  
-            BY <2>3, <4>1,<4>2,<4>3,FS_EmptySet,FS_AddElement, FS_CardinalityType, FS_Subset DEF Createworker  
-             \*BY <2>3 DEF Createworker  
+            BY <2>3, <4>1,<4>2,<4>3 DEF Createworker  
+             
        <3>14. SafetyProperty2'
        BY <2>3 DEF Createworker 
      
@@ -1136,7 +1167,7 @@ THEOREM Spec => []IInv2
            <4>3. idleworkers' \intersect busyworkers' = {} 
             BY <2>9 DEF StartDeleteWorker
            <4>4 QED  
-            BY <2>9,<4>1,<4>2,<4>3,FS_EmptySet,FS_AddElement, FS_CardinalityType, FS_Subset  DEF StartDeleteWorker
+            BY <2>9,<4>1,<4>2,<4>3 DEF StartDeleteWorker
             <3>17.SafetyProperty2'
             BY <2>9 DEF StartDeleteWorker
        <3>18. QED
@@ -1201,6 +1232,6 @@ THEOREM Spec => []IInv2
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Jan 20 12:14:40 CST 2021 by spadhy
+\* Last modified Thu Jan 21 12:44:49 CST 2021 by spadhy
 \* Created Mon Dec 07 11:36:52 CST 2020 by spadhy
 
