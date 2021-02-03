@@ -35,18 +35,21 @@ VARIABLES Workers,              \* Total number of workers being created
           work,                 \* representation of work
           actorWorkers,         \*
           idleworkers,          \* Set of Idle workers
-          busyworkers,           \* Set of Busy workers
+          busyworkers,          \* Set of Busy workers
          
-          revision_number,
-          revision_number_for_workers 
+          revision_number,      \* current actor revision number
+          revision_number_for_workers, \* revision number of workers using which a worker is started
+          hist_actor_rev_number,  \* history of actor's image revision number,
+          hist_actor_rev_number_for_workers
                    
  
  
  vars == <<Workers, actor_msg_queues, command_queues, worker_command_queues, actorStatus, workerStatus, 
- tmsg, work, actorWorkers, idleworkers, busyworkers,revision_number, revision_number_for_workers>>  
+ tmsg, work, actorWorkers, idleworkers, busyworkers,revision_number, revision_number_for_workers, 
+ hist_actor_rev_number, hist_actor_rev_number_for_workers>>  
  
 \* workerState
-workerState == {"-","IDLE", "BUSY", "SHUTDOWN_REQUESTED", "FINISHED"}
+workerState == {"-","IDLE", "BUSY", "SHUTDOWN_REQUESTED"}
 
 \* Actor State
 ActorState == {"STARTING_UP","READY","UPDATING_IMAGE"}
@@ -101,6 +104,9 @@ TypeInvariant ==
   /\ idleworkers \intersect busyworkers = {} 
   /\ revision_number \in [Actors -> Nat]
   /\ revision_number_for_workers \in [Workers -> Nat]
+  /\ hist_actor_rev_number \in [Actors -> Seq(Nat)]
+  /\ hist_actor_rev_number_for_workers \in [Actors-> SUBSET([worker:Workers, rnum: Nat])]
+  \*/\ hist_actor_rev_number_for_workers \in [Workers-> SUBSET([actor:Actors, rnum: Nat])]
   
   
 
@@ -154,8 +160,10 @@ AllWorkersOfReadyActorsUseLatestImageVersion == \A w \in Workers:(( workerStatus
 SafetyProperty2 == /\ AllWorkersOfReadyActorsUseLatestImageVersion
                    \*/\ AllWorkersOfReadyActorsUseSameImageVersion
  
+SafetyProperty3 == \A w \in Workers:  workerStatus[w].actor # "-"  => (revision_number_for_workers[w] = revision_number[workerStatus[w].actor]) \/ (\A y \in {x \in hist_actor_rev_number_for_workers[workerStatus[w].actor]: x=[worker|->w, rnum|->revision_number_for_workers[w]]}:y.rnum=revision_number_for_workers[w])
+SafetyProperty4 == \A w \in Workers:  workerStatus[w].actor # "-"  => (revision_number_for_workers[w] = revision_number[workerStatus[w].actor]) \/ ([worker|->w, rnum|->revision_number_for_workers[w]] \in hist_actor_rev_number_for_workers[workerStatus[w].actor])
+\*SafetyProperty3 == \A w \in Workers:(workerStatus[w].actor # "-") =>  (\A x \in hist_actor_rev_number_for_workers[w]: x.rnum = revision_number_for_workers[w])
 
-\* A temporal property: ensures all messages are eventually processed 
 \* (i.e., that the length of msq_queue is eventually 0 
 \* from some point until the end of the run.)
 AllMessagesProcessed == <>[](\A a \in Actors: Len(actor_msg_queues[a]) = 0)   
@@ -182,6 +190,10 @@ Init ==
     /\ busyworkers = {}
     /\ revision_number = [a \in Actors |-> 1] \* changed from 0 to 1 for proof 
     /\ revision_number_for_workers = [w \in Workers |-> 0]
+    /\ hist_actor_rev_number =[a \in Actors|-> <<1>>]
+    /\ hist_actor_rev_number_for_workers = [a \in Actors|-> {}]
+    \*/\ hist_actor_rev_number_for_workers = [w \in Workers|-> {}]
+  
  
 ----------------------------------------------------------------------------------    
 (*    
@@ -209,7 +221,9 @@ Startworker(w,a) ==
     /\ idleworkers' = idleworkers \cup {w}
     /\ actorWorkers'= [actorWorkers EXCEPT ![a] =  actorWorkers[a] \cup {w}]
     /\ revision_number_for_workers' = [revision_number_for_workers EXCEPT ![w] = revision_number[a]] \* This could have been revision_number_for_workers[w]+1] as it is part of the bootstrap but for consistency and safety property proof, we made it equal to revision_number[a]
-    /\ UNCHANGED<<Workers,actorStatus, tmsg, actor_msg_queues, work, busyworkers, command_queues, worker_command_queues ,revision_number>>
+    /\ hist_actor_rev_number_for_workers' = [hist_actor_rev_number_for_workers EXCEPT![a] = hist_actor_rev_number_for_workers[a] \cup {[worker|->w, rnum|->revision_number[a]]}]
+    \*/\ hist_actor_rev_number_for_workers' = [hist_actor_rev_number_for_workers EXCEPT![w] = hist_actor_rev_number_for_workers[w] \cup {[actor|->a, rnum|->revision_number[a]]}]
+    /\ UNCHANGED<<Workers,actorStatus, tmsg, actor_msg_queues, work, busyworkers, command_queues, worker_command_queues ,revision_number, hist_actor_rev_number>>
 
 (*
 Update Actor status from STARTING_UP to READY when minimum number of actors have been created for the actor
@@ -218,7 +232,7 @@ UpdateActorStatus(a) ==
     /\ actorStatus[a] = "STARTING_UP"
     /\ Cardinality(actorWorkers[a])= MinimumWorkersAlwaysUpPerActor
     /\ actorStatus'= [actorStatus EXCEPT ![a] = "READY"]  \* This could have been merged with previous step. We divided it into two steps for ease of proof
-    /\ UNCHANGED<<Workers,tmsg, actor_msg_queues, work, busyworkers, command_queues, worker_command_queues ,revision_number,revision_number_for_workers,actorWorkers, idleworkers, workerStatus>>
+    /\ UNCHANGED<<Workers,tmsg, actor_msg_queues, work, busyworkers, command_queues, worker_command_queues ,revision_number, revision_number_for_workers, actorWorkers, idleworkers, workerStatus, hist_actor_rev_number,hist_actor_rev_number_for_workers>>
 
 
 APIExecuteRecv(msg, a) ==    
@@ -231,7 +245,7 @@ Represents the API platform receiving an HTTP request to the POST /resource/{id}
     /\  tmsg < MaxMessage
     /\  actor_msg_queues'= [actor_msg_queues EXCEPT ![a] = Append(actor_msg_queues[a],msg)]
     /\  tmsg' = tmsg + 1
-    /\  UNCHANGED<<Workers, actorStatus, actorWorkers, workerStatus, work, idleworkers, busyworkers,command_queues, revision_number, revision_number_for_workers, worker_command_queues>>   
+    /\  UNCHANGED<<Workers, actorStatus, actorWorkers, workerStatus, work, idleworkers, busyworkers,command_queues, revision_number, revision_number_for_workers, worker_command_queues, hist_actor_rev_number,hist_actor_rev_number_for_workers>>   
 
 
 
@@ -247,9 +261,10 @@ Represents the Abaco platform receiving an HTTP request to the PUT /actors/{id} 
     /\  actorStatus' = [actorStatus EXCEPT ![a] = "UPDATING_IMAGE"]
     /\  command_queues'= [command_queues EXCEPT ![a] = Append(command_queues[a],msg)]
     /\  tmsg' = tmsg + 1
+    /\  hist_actor_rev_number' = [hist_actor_rev_number EXCEPT ![a] = Append(hist_actor_rev_number[a], revision_number[a]+ 1)]
     /\  revision_number' = [revision_number EXCEPT ![a] =  revision_number[a]+ 1]
     /\  UNCHANGED<<Workers, worker_command_queues, workerStatus, actorWorkers,
-       actor_msg_queues, work, idleworkers, busyworkers, revision_number_for_workers>> 
+       actor_msg_queues, work, idleworkers, busyworkers, revision_number_for_workers, hist_actor_rev_number_for_workers>> 
  
 (*    
 *****************************
@@ -281,7 +296,7 @@ The enabling condition is the actorStatus value (UPDATING_IMAGE) which is set wh
     /\ actorStatus' = [actorStatus EXCEPT ![a] = "READY"]
     /\ command_queues' = [command_queues EXCEPT ![a] = Tail(command_queues[a])]
     /\ UNCHANGED<<actor_msg_queues,worker_command_queues,tmsg,workerStatus,
-       actorWorkers, Workers, revision_number, revision_number_for_workers,busyworkers, idleworkers, work>>
+       actorWorkers, Workers, revision_number, revision_number_for_workers,busyworkers, idleworkers, work,hist_actor_rev_number,hist_actor_rev_number_for_workers>>
 
 
 StartDeleteWorker(w,a) ==
@@ -298,7 +313,7 @@ Represents internal processing that occurrs when the autoscaler determines that 
     /\ worker_command_queues' = [worker_command_queues EXCEPT ![w] = Append(worker_command_queues[w], [type |->"COMMAND", message |->"SHUTDOWN"])]
     /\ idleworkers' = idleworkers \ {w}
     /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus,tmsg,  
-       actorWorkers, Workers, revision_number, revision_number_for_workers,busyworkers, work>>                                                  
+       actorWorkers, Workers, revision_number, revision_number_for_workers,busyworkers, work, hist_actor_rev_number,hist_actor_rev_number_for_workers>>                                                  
  
 
 CompleteDeleteWorker(w,a) ==
@@ -315,23 +330,27 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
     /\ revision_number_for_workers' = [revision_number_for_workers EXCEPT ![w] = 0]  \* as we are releasing workers
     /\ worker_command_queues' = [worker_command_queues EXCEPT ![w] = Tail(worker_command_queues[w])]
     /\ actorWorkers'=  [actorWorkers EXCEPT ![a] = actorWorkers[a] \ {w}]
+    /\ hist_actor_rev_number_for_workers' = [hist_actor_rev_number_for_workers EXCEPT ![a]= hist_actor_rev_number_for_workers[a] \ {[worker|->w,rnum|->revision_number_for_workers[w]]}](*{\A x \in hist_actor_rev_number_for_workers[a]: x.worker = w} ]*)
+    \*/\ hist_actor_rev_number_for_workers' = [hist_actor_rev_number_for_workers EXCEPT ![w]= hist_actor_rev_number_for_workers[w] \ {\A x \in hist_actor_rev_number_for_workers[w]: x.actor=a} ]
     /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus, tmsg, 
-     Workers, revision_number,busyworkers, idleworkers, work>>
+     Workers, revision_number,busyworkers, idleworkers, work, hist_actor_rev_number>>
 
  
- Createworker(s, a) ==
+ Createworker(w, a) ==
     /\ actorStatus[a]= "READY" \/ actorStatus[a]="UPDATING_IMAGE"
     /\ (Len(actor_msg_queues[a]) >= ScaleUpThreshold) \/ (actorStatus[a]="UPDATING_IMAGE"/\ Cardinality(actorWorkers[a]) < MinimumWorkersAlwaysUpPerActor) \* Condition modified for proof
     /\ ~(\E s1 \in actorWorkers[a]: workerStatus[s1].status = "IDLE")
-    /\ workerStatus[s].status = "-"
-    /\ s \notin actorWorkers[a] \* required for the proof 
+    /\ workerStatus[w].status = "-"
+    /\ w \notin actorWorkers[a] \* required for the proof 
     /\ Cardinality(idleworkers) + Cardinality(busyworkers) < MaxWorkers \* This condition is required for the proof of Safety property
-    /\ workerStatus'= [workerStatus EXCEPT ![s] = [actor|->a,status|->"IDLE"]]     
+    /\ workerStatus'= [workerStatus EXCEPT ![w] = [actor|->a,status|->"IDLE"]]     
     \*/\ workerStatus'= [workerStatus EXCEPT ![s] = [actor|->a,status|->"CREATED"]]  
-    /\ idleworkers' = idleworkers \cup {s}
-    /\ actorWorkers'= [actorWorkers EXCEPT ![a] =  actorWorkers[a] \cup {s}]
-    /\ revision_number_for_workers' = [revision_number_for_workers EXCEPT ![s] = revision_number[a]]  
-    /\ UNCHANGED<<Workers,actorStatus,tmsg,actor_msg_queues, work, busyworkers, command_queues, revision_number, worker_command_queues>>
+    /\ idleworkers' = idleworkers \cup {w}
+    /\ actorWorkers'= [actorWorkers EXCEPT ![a] =  actorWorkers[a] \cup {w}]
+    /\ revision_number_for_workers' = [revision_number_for_workers EXCEPT ![w] = revision_number[a]]  
+    /\ hist_actor_rev_number_for_workers' = [hist_actor_rev_number_for_workers EXCEPT![a] = hist_actor_rev_number_for_workers[a] \cup {[worker|->w, rnum|->revision_number[a]]}]
+    \*/\ hist_actor_rev_number_for_workers' = [hist_actor_rev_number_for_workers EXCEPT![w] = hist_actor_rev_number_for_workers[w] \cup {[actor|->a, rnum|->revision_number[a]]}]
+    /\ UNCHANGED<<Workers,actorStatus,tmsg,actor_msg_queues, work, busyworkers, command_queues, revision_number, worker_command_queues, hist_actor_rev_number>>
         
 (* WorkerIDLE(w, a) ==
     \*/\ actorStatus[a]= "READY" \/ actorStatus[a]="UPDATING_IMAGE"
@@ -357,7 +376,7 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
     /\  workerStatus'= [workerStatus EXCEPT ![s] = [actor|->a,status|->"BUSY"]]
     /\  busyworkers' = busyworkers \cup {s}
     /\  idleworkers' = idleworkers \ {s}
-    /\  UNCHANGED<<Workers, actorStatus, actorWorkers, tmsg, work, command_queues, revision_number, revision_number_for_workers, worker_command_queues>>
+    /\  UNCHANGED<<Workers, actorStatus, actorWorkers, tmsg, work, command_queues, revision_number, revision_number_for_workers, worker_command_queues, hist_actor_rev_number, hist_actor_rev_number_for_workers>>
     
  
  workerBusy(s, a) ==
@@ -368,7 +387,7 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
     /\  workerStatus'= [workerStatus EXCEPT ![s] = [actor|->a, status|->"IDLE"]]
     /\  idleworkers' = idleworkers \cup {s}  
     /\  busyworkers' = busyworkers \ {s}
-    /\  UNCHANGED<<Workers, actorStatus, actorWorkers, tmsg, actor_msg_queues, command_queues, revision_number, revision_number_for_workers, worker_command_queues>>
+    /\  UNCHANGED<<Workers, actorStatus, actorWorkers, tmsg, actor_msg_queues, command_queues, revision_number, revision_number_for_workers, worker_command_queues,hist_actor_rev_number,hist_actor_rev_number_for_workers>>
 
 
  Stopworker(w,a) == 
@@ -382,7 +401,8 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
     /\  workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"SHUTDOWN_REQUESTED"]]
     /\  worker_command_queues' = [worker_command_queues EXCEPT ![w] = Append(worker_command_queues[w], [type |->"COMMAND", message |->"SHUTDOWN"])]
     /\  idleworkers' = idleworkers \ {w}
-    /\  UNCHANGED<<Workers,actorStatus, tmsg,actor_msg_queues, work, busyworkers,actorWorkers, command_queues, revision_number, revision_number_for_workers>>
+    \*/\  hist_actor_rev_number_for_workers' = [hist_actor_rev_number_for_workers EXCEPT ![a]= hist_actor_rev_number_for_workers[a] \ {\A x \in hist_actor_rev_number_for_workers[a]: x.worker=w} ]
+    /\  UNCHANGED<<Workers,actorStatus, tmsg,actor_msg_queues, work, busyworkers,actorWorkers, command_queues, revision_number, revision_number_for_workers,hist_actor_rev_number,hist_actor_rev_number_for_workers>>
     
  Next == 
        \/ \E w \in Workers, a \in Actors: Startworker(w, a)
@@ -1279,5 +1299,5 @@ THEOREM Spec => []IInv2
 
 =============================================================================
 \* Modification History
-\* Last modified Tue Jan 26 17:11:54 CST 2021 by spadhy
+\* Last modified Tue Feb 02 18:14:30 CST 2021 by spadhy
 \* Created Mon Jan 25 17:36:20 CST 2021 by spadhy
