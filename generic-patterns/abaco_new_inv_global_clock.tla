@@ -116,6 +116,10 @@ TypeInvariant ==
 TotalworkersRunning == idleworkers \cup busyworkers
   
 
+ClockInv ==  /\ \A a \in Actors: hist_actor_rev_number[a].ts<= clock 
+             /\ \A w \in Workers: hist_worker_rev_number[w].ts<=clock    
+
+
 SafetyProperty ==  /\ Cardinality(idleworkers) \in 0..MaxWorkers
                    /\ Cardinality(busyworkers) \in 0..MaxWorkers
                    /\ IsFiniteSet(idleworkers)
@@ -196,8 +200,6 @@ Startworker(w,a) ==
     /\ actorStatus[a] = "STARTING_UP"
     /\ hist_worker_rev_number[w].rnum < hist_actor_rev_number[a].rnum \* Adding for proof
     /\ hist_worker_rev_number[w].ts <= hist_actor_rev_number[a].ts
-    \*/\ \A w1 \in Workers: workerStatus[w1].actor # "-" => (hist_worker_rev_number[w1].ts <= clock) \* adding for proof
-    \*/\ \A a1 \in Actors: hist_actor_rev_number[a1].ts <= clock \* adding it for proof
     /\ clock' = clock + 1
     /\ workerStatus'= [workerStatus EXCEPT ![w] = [actor|->a, status|->"IDLE"]]     
     /\ idleworkers' = idleworkers \cup {w}
@@ -241,8 +243,6 @@ Represents the Abaco platform receiving an HTTP request to the PUT /actors/{id} 
     /\  msg.type = "UPDATE"
     /\  msg.actor = a
     /\  tmsg < MaxMessage
-    /\  \A w \in Workers: workerStatus[w].actor=a => (hist_worker_rev_number[w].ts <= clock) \* Required  for proof
-    /\  \A w \in Workers: workerStatus[w].actor=a => (hist_worker_rev_number[w].rnum <= hist_actor_rev_number[a].rnum) \* Required for proof
     /\  clock' = clock + 1
     /\  actorStatus' = [actorStatus EXCEPT ![a] = "UPDATING_IMAGE"]
     /\  command_queues'= [command_queues EXCEPT ![a] = Append(command_queues[a],msg)]
@@ -819,7 +819,86 @@ THEOREM SafetyPropertyTheorem == Spec => []SafetyProperty
 <1>. QED  BY <1>1, <1>2, TypeCorrect, PTL DEF Spec
 
 
-(*-----------------*)
+
+
+(*
+   ClockInv ==  /\ \A a \in Actors: hist_actor_rev_number[a].ts<= clock 
+             /\ \A w \in Workers: hist_worker_rev_number[w].ts<=clock    
+   
+*)
+
+THEOREM Spec=>[]ClockInv
+  <1>1. Init => ClockInv
+  BY  DEF Init, ClockInv
+  <1>2. IInv /\ ClockInv /\ [Next]_vars => ClockInv'
+    <2> SUFFICES ASSUME IInv,
+                        ClockInv,
+                        [Next]_vars
+                 PROVE  ClockInv'
+      OBVIOUS
+    <2>. USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalworkersRunning, AllActors, CommandMessage, WorkerMessage, ClockInv
+    <2>1. ASSUME NEW w \in Workers,
+                 NEW a \in Actors,
+                 Startworker(w, a)
+          PROVE  ClockInv'
+          BY <2>1 DEF Startworker
+    <2>2. ASSUME NEW a \in Actors,
+                 UpdateActorStatus(a)
+          PROVE  ClockInv'
+          BY <2>2 DEF UpdateActorStatus
+    <2>3. ASSUME NEW msg \in ActorMessage,
+                 NEW a \in Actors,
+                 APIExecuteRecv(msg, a)
+          PROVE  ClockInv'
+          BY <2>3 DEF APIExecuteRecv
+    <2>4. ASSUME NEW msg \in CommandMessage,
+                 NEW a \in Actors,
+                 ActorUpdateRecv(msg, a)
+          PROVE  ClockInv'
+          BY <2>4 DEF ActorUpdateRecv
+    <2>5. ASSUME NEW a \in Actors,
+                 NEW w \in Workers,
+                 UpdateActor(a,w)
+          PROVE  ClockInv'
+          BY <2>5 DEF UpdateActor
+    <2>6. ASSUME NEW w \in Workers,
+                 NEW a \in Actors,
+                 Createworker(w, a)
+          PROVE  ClockInv'
+          BY <2>6 DEF Createworker
+    <2>7. ASSUME NEW w \in Workers,
+                 NEW a \in Actors,
+                 WorkerRecv(w, a)
+          PROVE  ClockInv'
+          BY <2>7 DEF WorkerRecv
+    <2>8. ASSUME NEW w \in Workers,
+                 NEW a \in Actors,
+                 workerBusy(w, a)
+          PROVE  ClockInv'
+          BY <2>8 DEF  workerBusy 
+    <2>9. ASSUME NEW w \in Workers,
+                 NEW a \in Actors,
+                 Stopworker(w, a)
+          PROVE  ClockInv'
+          BY <2>9 DEF Stopworker     
+    <2>10. ASSUME NEW w \in Workers,
+                  NEW a \in Actors,
+                  StartDeleteWorker(w,a)
+           PROVE  ClockInv'
+           BY <2>10 DEF StartDeleteWorker
+    <2>11. ASSUME NEW w \in Workers,
+                  NEW a \in Actors,
+                  CompleteDeleteWorker(w,a)
+           PROVE  ClockInv'
+           BY <2>11 DEF CompleteDeleteWorker
+    <2>12. CASE UNCHANGED vars
+            BY <2>12 DEF vars
+    <2>13. QED
+      BY <2>1, <2>10, <2>11, <2>12, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8, <2>9 DEF Next
+ 
+  
+  <1>. QED  BY <1>1, <1>2, TypeCorrect, PTL DEF Spec
+
 (*
 --------------------------------------------------------------------------------------------------
 --------------------------------------------- Inductive Invariant 2 Proof ------------------------
@@ -828,111 +907,151 @@ THEOREM SafetyPropertyTheorem == Spec => []SafetyProperty
 
 \*SafetyProperty1 ==  \A w \in Workers:  workerStatus[w].actor # "-" =>  (hist_worker_rev_number[w].rnum = hist_actor_rev_number[workerStatus[w].actor].rnum => hist_actor_rev_number[workerStatus[w].actor].ts < hist_worker_rev_number[w].ts)
 
-IInv2 == TypeInvariant /\ SafetyProperty /\ SafetyProperty1   
+IInv2 == TypeInvariant /\ SafetyProperty /\ SafetyProperty1/\ClockInv   
 
 
 THEOREM Spec => []SafetyProperty1   
-<1>1. Init => SafetyProperty1   
-     BY  SpecAssumption DEF IInv, TypeInvariant, Init,workerState, ActorState, AllActors, ActorMessage, SafetyProperty,SafetyProperty1   
+<1>1. Init => SafetyProperty1 /\ ClockInv   
+     BY  SpecAssumption DEF IInv, TypeInvariant, Init,workerState, ActorState, AllActors, ActorMessage, SafetyProperty,SafetyProperty1,ClockInv   
    
 
-<1>2. IInv /\ SafetyProperty /\ SafetyProperty1 /\ [Next]_vars => SafetyProperty1'
+<1>2. IInv /\ SafetyProperty/\ ClockInv /\ SafetyProperty1 /\ ClockInv/\ [Next]_vars => SafetyProperty1'/\ ClockInv' 
   <2> SUFFICES ASSUME IInv,
                       SafetyProperty,
                       SafetyProperty1,
-                      [Next]_vars
-               PROVE  SafetyProperty1'
+                      [Next]_vars, ClockInv
+               PROVE  SafetyProperty1'/\ ClockInv'
     BY DEF IInv, SafetyProperty, SafetyProperty1
-  <2>.USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalworkersRunning, AllActors, CommandMessage, WorkerMessage,SafetyProperty1       
+  <2>.USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalworkersRunning, AllActors, CommandMessage, WorkerMessage,SafetyProperty1,ClockInv       
   <2>1. ASSUME NEW w \in Workers,
             NEW a \in Actors,
                Startworker(w,a)
-        PROVE  SafetyProperty1'
-      
-       <3>1. workerStatus'[w].actor # "-" =>((hist_worker_rev_number'[w].rnum <  hist_actor_rev_number'[a].rnum) =>(hist_actor_rev_number'[a].ts >= hist_worker_rev_number'[w].ts))
+        PROVE  SafetyProperty1'/\ ClockInv' 
+    <3>1. SafetyProperty1'
+        <4>1. workerStatus'[w].actor # "-" =>((hist_worker_rev_number'[w].rnum <  hist_actor_rev_number'[a].rnum) =>(hist_actor_rev_number'[a].ts >= hist_worker_rev_number'[w].ts))
             BY <2>1 DEF Startworker
       
-       <3>2. QED BY <2>1,<3>1 DEF Startworker
+       <4>2. QED BY <2>1, <4>1 DEF Startworker
+      \*BY <2>1 DEF Startworker
+    <3>2. ClockInv'
+      BY <2>1 DEF Startworker
+    <3>3. QED
+      BY <3>1, <3>2
+    
   
   <2>2. ASSUME NEW msg \in ActorMessage,
                NEW a \in Actors,
                APIExecuteRecv(msg, a)
-        PROVE  SafetyProperty1'
+        PROVE  SafetyProperty1' /\ ClockInv'
         BY <2>2 DEF APIExecuteRecv  
   
   <2>3. ASSUME NEW w \in Workers,
             NEW a \in Actors,
                Createworker(w,a)
-        PROVE  SafetyProperty1'
-       <3>1. workerStatus'[w].actor # "-" =>((hist_worker_rev_number'[w].rnum <  hist_actor_rev_number'[a].rnum) =>(hist_actor_rev_number'[a].ts >= hist_worker_rev_number'[w].ts))
+        PROVE  SafetyProperty1'/\ ClockInv' 
+       <3>1. SafetyProperty1'
+        <4>1. workerStatus'[w].actor # "-" =>((hist_worker_rev_number'[w].rnum <  hist_actor_rev_number'[a].rnum) =>(hist_actor_rev_number'[a].ts >= hist_worker_rev_number'[w].ts))
             BY <2>3 DEF Createworker 
       
-       <3>2. QED 
-       BY <2>3,<3>1 DEF Createworker 
-     
-      
+        <4>2. QED 
+       BY <2>3,<4>1 DEF Createworker 
+      <3>2. ClockInv'
+      BY <2>3 DEF Createworker 
+      <3>3. QED BY <3>1,<3>2
+      \*BY <2>3,<>1 DEF Createworker
   
   
-  <2>4. ASSUME NEW s \in Workers,
+  <2>4. ASSUME NEW w \in Workers,
                  NEW a \in Actors,
-               WorkerRecv(s,a)
+               WorkerRecv(w,a)
               
-        PROVE  SafetyProperty1'
-         BY <2>4 DEF WorkerRecv 
+        PROVE  SafetyProperty1'/\ ClockInv' 
+      <3>1. SafetyProperty1'
+       BY <2>4 DEF WorkerRecv 
+      <3>2. ClockInv'
+      BY <2>4 DEF WorkerRecv 
+      <3>3. QED BY <3>1,<3>2
+         
        
   <2>5. ASSUME NEW s \in Workers,
                  NEW a \in Actors,
                workerBusy(s,a)
-        PROVE  SafetyProperty1'
-         BY <2>5 DEF workerBusy 
+        PROVE  SafetyProperty1'/\ ClockInv' 
+       <3>1. SafetyProperty1'
+       BY <2>5 DEF workerBusy 
+      <3>2. ClockInv'
+      BY <2>5 DEF workerBusy 
+      <3>3. QED BY <3>1,<3>2
+         
   
   <2>6. ASSUME NEW s \in Workers,
                  NEW a \in Actors,
                Stopworker(s,a)
-        PROVE  SafetyProperty1'
-  
-       BY <2>6 DEF Stopworker
+        PROVE  SafetyProperty1'/\ ClockInv' 
+       <3>1. SafetyProperty1'
+      BY <2>6 DEF Stopworker
+      <3>2. ClockInv'
+      BY <2>6 DEF Stopworker
+      <3>3. QED BY <3>1,<3>2
+       
   
   <2>7. ASSUME NEW msg \in CommandMessage,
         NEW a \in Actors,
         ActorUpdateRecv(msg, a) 
-        PROVE SafetyProperty1'
-       
-       <3>1. \A w \in Workers: workerStatus'[w].actor = a =>((hist_worker_rev_number'[w].rnum <  hist_actor_rev_number'[workerStatus'[w].actor].rnum) =>(hist_actor_rev_number'[workerStatus'[w].actor].ts >= hist_worker_rev_number'[w].ts))
+        PROVE SafetyProperty1'/\ ClockInv' 
+       <3>1. SafetyProperty1'
+        <4>1. \A w \in Workers: workerStatus'[w].actor = a =>((hist_worker_rev_number'[w].rnum <  hist_actor_rev_number'[workerStatus'[w].actor].rnum) =>(hist_actor_rev_number'[workerStatus'[w].actor].ts >= hist_worker_rev_number'[w].ts))
            BY <2>7 DEF ActorUpdateRecv
       
-       <3>2. QED 
-       BY <2>7, <3>1 DEF ActorUpdateRecv
-     
+       <4>2. QED 
+       BY <2>7, <4>1 DEF ActorUpdateRecv
+       <3>2. ClockInv'
+       BY <2>7 DEF ActorUpdateRecv
+      <3>3. QED BY <3>1,<3>2
   <2>8. ASSUME NEW a \in Actors, 
         NEW w \in Workers, 
        UpdateActor(a, w)
-       PROVE SafetyProperty1'
-     BY <2>8 DEF UpdateActor
+       PROVE SafetyProperty1'/\ ClockInv' 
+      <3>1. SafetyProperty1'
+      BY <2>8 DEF UpdateActor
+      <3>2. ClockInv'
+      BY <2>8 DEF UpdateActor
+      <3>3. QED BY <3>1,<3>2
+     
      
   <2>9.  ASSUME NEW w \in Workers, 
         NEW a \in Actors,
          StartDeleteWorker(w,a) 
-         PROVE SafetyProperty1'
-     BY <2>9 DEF StartDeleteWorker
+         PROVE SafetyProperty1'/\ ClockInv' 
+      <3>1. SafetyProperty1'
+      BY <2>9 DEF StartDeleteWorker
+      <3>2. ClockInv'
+      BY <2>9 DEF StartDeleteWorker
+      <3>3. QED BY <3>1,<3>2    
+     
      
   <2>10. ASSUME NEW  a \in Actors,
           NEW w \in Workers,
             CompleteDeleteWorker(w,a)  
-            PROVE SafetyProperty1'
-     BY <2>10 DEF CompleteDeleteWorker
+            PROVE SafetyProperty1'/\ ClockInv' 
+      <3>1. SafetyProperty1'
+      BY <2>10 DEF CompleteDeleteWorker
+      <3>2. ClockInv'
+      BY <2>10 DEF CompleteDeleteWorker
+      <3>3. QED BY <3>1,<3>2         
+     
       
   <2>14. ASSUME NEW a \in Actors, UpdateActorStatus(a)
-          PROVE SafetyProperty1'
+          PROVE SafetyProperty1'/\ ClockInv' 
           BY <2>14 DEF  UpdateActorStatus      
   <2>15. CASE UNCHANGED vars
         BY <2>15 DEF vars
   <2>16. QED
-    BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>6,<2>7,<2>8,<2>9,<2>10,<2>14,<2>15,FS_EmptySet,FS_Interval,FS_AddElement, FS_RemoveElement, FS_CardinalityType, FS_Subset DEF Next
+    BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>6,<2>7,<2>8,<2>9,<2>10,<2>14,<2>15,ClockInv,FS_EmptySet,FS_Interval,FS_AddElement, FS_RemoveElement, FS_CardinalityType, FS_Subset DEF Next
  
-<1>. QED  BY <1>1, <1>2, TypeCorrect, SafetyPropertyTheorem,PTL DEF Spec
+<1>. QED  BY <1>1, <1>2, TypeCorrect, SafetyPropertyTheorem, PTL DEF Spec
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Apr 08 15:35:35 CDT 2021 by spadhy
+\* Last modified Thu Apr 15 16:00:06 CDT 2021 by spadhy
 \* Created Mon Mar 29 11:27:54 CDT 2021 by spadhy
