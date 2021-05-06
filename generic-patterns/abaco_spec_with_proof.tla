@@ -1,18 +1,23 @@
-------------------------- MODULE fmcad_abaco_proof -------------------------
-EXTENDS Naturals, FiniteSets, FiniteSetTheorems, Sequences, SequenceOpTheorems,TLAPS, TLC 
+----------------------- MODULE abaco_spec_with_proof -----------------------
 
-CONSTANTS MaxMessage,        \* Maximum number of HTTP requests that are sent
+EXTENDS Naturals, FiniteSets, FiniteSetTheorems, Sequences, TLAPS
+
+CONSTANTS \*MaxMessage,        \* Maximum number of HTTP requests that are sent
           ScaleUpThreshold,  \* ScaleUpThreshold 
-          MinimumWorkersAlwaysUpPerActor,  \* Minimum number of workers should always be running per actor
+          MinimumWorkersAlwaysUpPerActor,  \* Minimum number of workers should 
+                                           \* always be running per actor
           MaxWorkers,        \* Maximum Number of workers that can be created
-          Actors             \* Actor list
+          Actors,             \* Actor list
+          largestNat
                 
           
             
 ASSUME SpecAssumption == 
-         /\ MaxMessage \in (Nat \ {0})
-         /\ ScaleUpThreshold \in (Nat \ {0}) (* ScaleUpThreshold should be atleast 1 *)   
-         /\ MinimumWorkersAlwaysUpPerActor \in (Nat \ {0})  (* Atleast one worker should always be running *) 
+         \*/\ MaxMessage \in (Nat \ {0})
+         (* ScaleUpThreshold should be atleast 1 *)
+         /\ ScaleUpThreshold \in (Nat \ {0})    
+         (* Atleast one worker should always be running *) 
+         /\ MinimumWorkersAlwaysUpPerActor \in (Nat \ {0})  
          /\ MaxWorkers \in (Nat \ {0})
          /\ MinimumWorkersAlwaysUpPerActor <= MaxWorkers 
          /\ Actors # {}
@@ -29,24 +34,21 @@ VARIABLES Workers,              \* Total number of workers being created
           worker_command_queues,
           actorStatus,          \* actor's status
           workerStatus,         \* worker status
-          
-          tmsg,                 \* total number of messages sent
-          work,                 \* representation of work
+          \*tmsg,                 \* total number of messages sent
+          \*work,                 \* representation of work
           actorWorkers,         \*
           idleworkers,          \* Set of Idle workers
           busyworkers,          \* Set of Busy workers
-         
-          \*revision_number,      \* current actor revision number
-          \*revision_number_for_workers, \* revision number of workers using which a worker is started
-          hist_actor_rev_number,  \* history of actor's image revision number,
-          hist_worker_rev_number, \* history of actor image used by the worker at the time of worker's creation
+          actor_rev,            \* Actor's image revision number and the time of last update
+          worker_rev, \* Actor's image revision number used by the worker at the time
+                                  \* of worker's creation
           clock
                    
  
  
- vars == <<Workers, actor_msg_queues, command_queues, worker_command_queues, actorStatus, workerStatus, 
- tmsg, work, actorWorkers, idleworkers, busyworkers,(*revision_number, revision_number_for_workers,*) 
- hist_actor_rev_number,  hist_worker_rev_number, clock>>  
+ vars == <<Workers, actor_msg_queues, command_queues, worker_command_queues, actorStatus,
+            workerStatus, (*tmsg, work,*) actorWorkers, idleworkers, busyworkers,
+            actor_rev,  worker_rev, clock>>  
  
 \* workerState
 workerState == {"-","IDLE","BUSY", "SHUTDOWN_REQUESTED"}
@@ -64,21 +66,20 @@ Set of all possible message types in the queue
 *)
  
  \* These message types represent BOTH the HTTP request message (sent by the user)
- \* and the message queued in a message queue
- \* In the real implementation, the messages are not exactly the same,
- \* but we make this simplification for the spec:
+ \* and the message queued in a message queue. In the real implementation,
+ \* the messages are not exactly the same, but we make this simplification for the spec.
 
 ActorMessage == [type : {"EXECUTE"}, actor:Actors]
 
 CommandMessage == [type : {"UPDATE"},  actor: Actors]
 
 
-\* These are messages sent directly from internal Abaco processes (such as the autoscaler) to the worker.
+\* These are messages sent directly from internal Abaco processes 
+\* (such as the autoscaler) to the worker.
 WorkerMessage == [type: {"COMMAND"}, message: {"SHUTDOWN"}]
 
 
-HistoryRecord == [rnum: Nat, ts:Nat]
-----------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------
 
 
 (*
@@ -93,21 +94,19 @@ TypeInvariant ==
   /\ Workers \in {1..MaxWorkers}
   /\ workerStatus \in [Workers -> [status:workerState,actor:AllActors]] 
   /\ actor_msg_queues \in [Actors->Seq(ActorMessage)]
-  /\ command_queues \in [Actors -> Seq(CommandMessage)] \* multiple queues
-  /\ worker_command_queues \in [Workers -> Seq(WorkerMessage)] \* multiple queues
-  /\ tmsg \in 0..MaxMessage
+  /\ command_queues \in [Actors -> Seq(CommandMessage)] 
+  /\ worker_command_queues \in [Workers -> Seq(WorkerMessage)]
+  (*/\ tmsg \in 0..MaxMessage
   /\ \A a \in Actors: tmsg >= Len(actor_msg_queues[a])
-  /\ work \in 1..MaxMessage
+  /\ work \in 1..MaxMessage*)
   /\ actorWorkers \in [Actors -> SUBSET Workers]
   /\ idleworkers \in SUBSET Workers
   /\ \A s1 \in idleworkers:workerStatus[s1].status = "IDLE"
   /\ busyworkers \in SUBSET Workers
   /\ \A s2 \in busyworkers:workerStatus[s2].status = "BUSY"
   /\ idleworkers \intersect busyworkers = {} 
-  (*/\ revision_number \in [Actors -> Nat]
-  /\ revision_number_for_workers \in [Workers -> Nat]*)
-  /\ hist_actor_rev_number \in [Actors -> [rnum:Nat, ts: Nat]]
-  /\ hist_worker_rev_number \in [Workers ->[rnum:Nat, ts: Nat]]
+  /\ actor_rev \in [Actors -> [rnum:Nat, ts: Nat]]
+  /\ worker_rev \in [Workers ->[rnum:Nat, ts: Nat]]
   /\ clock \in Nat
   
   
@@ -115,8 +114,6 @@ TypeInvariant ==
 TotalworkersRunning == idleworkers \cup busyworkers
   
 
-ClockInv ==  /\ \A a \in Actors: hist_actor_rev_number[a].ts<= clock 
-             /\ \A w \in Workers: hist_worker_rev_number[w].ts<=clock    
 
 
 SafetyProperty ==  /\ Cardinality(idleworkers) \in 0..MaxWorkers
@@ -127,24 +124,29 @@ SafetyProperty ==  /\ Cardinality(idleworkers) \in 0..MaxWorkers
                    /\ \A s \in Workers:workerStatus[s].status = "IDLE" => s \in idleworkers
                    /\ \A s \in Workers:workerStatus[s].status = "BUSY" => s \in busyworkers
                    /\ \A a\in Actors: IsFiniteSet(actorWorkers[a])
-                   /\ \A a \in Actors: actorStatus[a]="READY"=>(Cardinality(actorWorkers[a]) >= MinimumWorkersAlwaysUpPerActor)
+                   /\ \A a \in Actors: actorStatus[a]="READY"
+                            =>(Cardinality(actorWorkers[a]) >= MinimumWorkersAlwaysUpPerActor)
                    
                    
 
                    
+ClockInv ==  /\ \A a \in Actors: actor_rev[a].ts<= clock 
+             /\ \A w \in Workers: worker_rev[w].ts<=clock    
+
+RevisionNumberInv == 
+              \A w \in Workers:  workerStatus[w].actor # "-" =>  
+              (worker_rev[w].rnum < actor_rev[workerStatus[w].actor].rnum
+              => actor_rev[workerStatus[w].actor].ts >= worker_rev[w].ts)
 
 
-
-\* what we want to prove SafetyProperty1 ==  \A w \in Workers:  workerStatus[w].actor # "-" => (\A x \in hist_actor_rev_number[workerStatus[w].actor]: x.ts < hist_worker_rev_number[w].ts => x.rnum <= hist_worker_rev_number[w].rnum)
-
- SafetyProperty1 ==  \A w \in Workers:  workerStatus[w].actor # "-" =>  (hist_worker_rev_number[w].rnum < hist_actor_rev_number[workerStatus[w].actor].rnum => hist_actor_rev_number[workerStatus[w].actor].ts >= hist_worker_rev_number[w].ts)
-
-
-\* (i.e., that the length of msq_queue is eventually 0  
-\* from some point until the end of the run.)
 AllMessagesProcessed == <>[](\A a \in Actors: Len(actor_msg_queues[a]) = 0)   
 
-      
+StateConstraint ==
+  /\ clock < largestNat
+  /\ \A a \in Actors: actor_rev[a].rnum < largestNat
+  /\ \A a \in Actors: actor_rev[a].ts <largestNat
+  /\ \A w \in Workers: worker_rev[w].rnum < largestNat    
+  /\ \A w \in Workers: worker_rev[w].ts < largestNat   
  
 (*
 ****************************
@@ -153,72 +155,62 @@ Initialization of Variables
 *)
 
 Init == 
-    /\ actorStatus = [a \in Actors |-> "STARTING_UP" ] \* Each Actor is starting up 
+    /\ actorStatus = [a \in Actors |-> "STARTING_UP" ] 
     /\ Workers = 1..MaxWorkers
-    /\ workerStatus = [s \in Workers |-> [status|->"-", actor|->"-"]] \* worker has not yet started/created
+    /\ workerStatus = [s \in Workers |-> [status|->"-", actor|->"-"]] 
     /\ actor_msg_queues = [a \in Actors |-> <<>>]
     /\ command_queues = [a \in Actors |-> <<>>]
     /\ worker_command_queues = [w \in Workers|-> <<>>]
-    /\ tmsg  = 0
-    /\ work = 1
+    \*/\ tmsg  = 0
+    \*/\ work = 1
     /\ actorWorkers = [a \in Actors |-> {}]
     /\ idleworkers = {}
     /\ busyworkers = {}
-    (*/\ revision_number = [a \in Actors |-> 1] \* changed from 0 to 1 for proof 
-    /\ revision_number_for_workers = [w \in Workers |-> 0]
-    *)
-    /\ hist_actor_rev_number = [a \in Actors|-> [rnum|->1, ts|->0]]
-    /\ hist_worker_rev_number = [w \in Workers|-> [rnum|->0, ts|->0]]
+    /\ actor_rev = [a \in Actors|-> [rnum|->1, ts|->0]]
+    /\ worker_rev = [w \in Workers|-> [rnum|->0, ts|->0]]
     /\ clock = 0
   
  
-----------------------------------------------------------------------------------    
+-------------------------------------------------------------------------------------------    
 (*    
 *************************************
 HTTP Requests/Synchronous Processing
 *************************************
 *)
 
-(*
- 
-Creates Minimum number of workers for each actor when the system bootstraps
-
+(*  
+   Creates Minimum number of workers for each actor when the system bootstraps
 *)
-(*/\ WtoA[w]="-"
-        /\ valY[w].val < valX[a].val
-        /\ valY[w].ts <= valX[a].ts   \* This is for proof
-        /\ clock' = clock + 1
-        /\ WtoA'= [WtoA EXCEPT ![w]=a]
-        /\ valY'=[valY EXCEPT ![w]=[val|->valX[a].val, ts|->clock']] 
-        /\ UNCHANGED<<valX,WtoA, n>>  
-        *)  
+  
 Startworker(w,a) ==
-    /\ Cardinality(actorWorkers[a]) < MinimumWorkersAlwaysUpPerActor     \* Actor does not have minimum number of workers up
-    /\ Cardinality(idleworkers) + Cardinality(busyworkers) < MaxWorkers \* Total number of workers created should not exceed Maxworkers
-    /\ workerStatus[w].actor = "-"        \* For proof, represent each element of the record instead of record notation workerStatus[w]=[actor|-> "-",status|->"-" ]
+    /\ Cardinality(actorWorkers[a]) < MinimumWorkersAlwaysUpPerActor     
+    /\ Cardinality(idleworkers) + Cardinality(busyworkers) < MaxWorkers 
+    /\ workerStatus[w].actor = "-"        
     /\ workerStatus[w].status = "-"
     /\ actorStatus[a] = "STARTING_UP"
-    /\ hist_worker_rev_number[w].rnum < hist_actor_rev_number[a].rnum \* Adding for proof
-    /\ hist_worker_rev_number[w].ts <= hist_actor_rev_number[a].ts
+    /\ worker_rev[w].rnum < actor_rev[a].rnum 
+    /\ worker_rev[w].ts <= actor_rev[a].ts
     /\ clock' = clock + 1
-    /\ workerStatus'= [workerStatus EXCEPT ![w] = [actor|->a, status|->"IDLE"]]    
-    \*/\ PrintT(<<"StartWorker:", clock', a, actorStatus[a], w, workerStatus'[w].status>>) 
+    /\ workerStatus'= [workerStatus EXCEPT ![w] = [actor|->a, status|->"IDLE"]]     
     /\ idleworkers' = idleworkers \cup {w}
     /\ actorWorkers'= [actorWorkers EXCEPT ![a] =  actorWorkers[a] \cup {w}]
-    \*/\ revision_number_for_workers' = [revision_number_for_workers EXCEPT ![w] = revision_number[a]] \* This could have been revision_number_for_workers[w]+1] as it is part of the bootstrap but for consistency and safety property proof, we made it equal to revision_number[a]
-    /\ hist_worker_rev_number' = [hist_worker_rev_number EXCEPT![w] = [rnum|->hist_actor_rev_number[a].rnum, ts|->clock']] \* checking for proof
-    /\ UNCHANGED<<Workers,actorStatus, tmsg, actor_msg_queues, work, busyworkers, command_queues, worker_command_queues ,(*revision_number,*) hist_actor_rev_number>>
+    /\ worker_rev' = [worker_rev 
+                EXCEPT![w] = [rnum|->actor_rev[a].rnum, ts|->clock']] 
+    /\ UNCHANGED<<Workers,actorStatus, (*tmsg,*) actor_msg_queues, (*work,*) busyworkers, 
+                command_queues, worker_command_queues, actor_rev>>
 
 (*
-Update Actor status from STARTING_UP to READY when minimum number of actors have been created for the actor
+    Update Actor status from STARTING_UP to READY when minimum number of actors have been created for the actor
 *)
+
 UpdateActorStatus(a) ==
     /\ actorStatus[a] = "STARTING_UP"
     /\ Cardinality(actorWorkers[a])= MinimumWorkersAlwaysUpPerActor
     /\ clock'=clock+1
-    /\ actorStatus'= [actorStatus EXCEPT ![a] = "READY"]  \* This could have been merged with previous step. We divided it into two steps for ease of proof
-    \*/\ PrintT(<<"UpdateActorStatus:", clock', a, actorStatus'[a]>>)
-    /\ UNCHANGED<<Workers,tmsg, actor_msg_queues, work, busyworkers, command_queues, worker_command_queues ,(*revision_number, revision_number_for_workers,*) actorWorkers, idleworkers, workerStatus, hist_actor_rev_number,hist_worker_rev_number>>
+    /\ actorStatus'= [actorStatus EXCEPT ![a] = "READY"]
+    /\ UNCHANGED<<Workers,(*tmsg,*) actor_msg_queues, (*work,*) busyworkers, command_queues,
+                 worker_command_queues , actorWorkers, idleworkers, workerStatus,
+                 actor_rev,worker_rev>>
 
 
 APIExecuteRecv(msg, a) ==    
@@ -228,12 +220,13 @@ Represents the API platform receiving an HTTP request to the POST /resource/{id}
     /\  actorStatus[a]= "READY" \/ actorStatus[a]= "UPDATING_IMAGE"
     /\  msg.type = "EXECUTE"
     /\  msg.actor = a
-    /\  tmsg < MaxMessage
+    \*/\  tmsg < MaxMessage
     /\  clock' = clock + 1
-    \*/\  PrintT(<<"APIExecuteRecv:", clock'>>)
-    /\  actor_msg_queues'= [actor_msg_queues EXCEPT ![a] = Append(actor_msg_queues[a],msg)]
-    /\  tmsg' = tmsg + 1
-    /\  UNCHANGED<<Workers, actorStatus, actorWorkers, work, workerStatus, busyworkers, idleworkers, command_queues, (*revision_number, revision_number_for_workers,*) worker_command_queues, hist_actor_rev_number,hist_worker_rev_number>>   
+    /\  actor_msg_queues'= [actor_msg_queues EXCEPT ![a]=Append(actor_msg_queues[a],msg)]
+    \*/\  tmsg' = tmsg + 1
+    /\  UNCHANGED<<Workers, actorStatus, actorWorkers, (*work,*) workerStatus, busyworkers,
+         idleworkers, command_queues, worker_command_queues, actor_rev,
+         worker_rev>>   
 
 
 
@@ -245,16 +238,15 @@ Represents the Abaco platform receiving an HTTP request to the PUT /actors/{id} 
     /\  actorStatus[a] = "READY"
     /\  msg.type = "UPDATE"
     /\  msg.actor = a
-    /\  tmsg < MaxMessage
+    \*/\  tmsg < MaxMessage
     /\  clock' = clock + 1
-    \*/\  PrintT(<<"ActorUpdateRecv:", clock'>>)
     /\  actorStatus' = [actorStatus EXCEPT ![a] = "UPDATING_IMAGE"]
     /\  command_queues'= [command_queues EXCEPT ![a] = Append(command_queues[a],msg)]
-    /\  tmsg' = tmsg + 1
-    \*/\  revision_number' = [revision_number EXCEPT ![a] =  revision_number[a]+ 1]
-    /\  hist_actor_rev_number' = [hist_actor_rev_number EXCEPT ![a] =[rnum|->hist_actor_rev_number[a].rnum + 1,ts|->clock']]
+    \*/\  tmsg' = tmsg + 1
+    /\  actor_rev' = [actor_rev 
+                EXCEPT ![a] =[rnum|->actor_rev[a].rnum + 1,ts|->clock']]
     /\  UNCHANGED<<Workers, worker_command_queues, actorWorkers,
-       actor_msg_queues, work, idleworkers, (*revision_number_for_workers,*) hist_worker_rev_number,busyworkers, workerStatus>> 
+       actor_msg_queues, (*work,*) idleworkers, worker_rev,busyworkers, workerStatus>> 
  
 (*    
 *****************************
@@ -262,106 +254,102 @@ Asynchronous Task Processing
 *****************************
 *)
 
-UpdateActor(a, w) == 
 (*
-Represents internal processing of an actor update request. We represent this as an independent action because the processing happens 
-asynchronously to the original HTTP request.
+Represents internal processing of an actor update request. We represent this as an independent action 
+because the processing happens asynchronously to the original HTTP request.
 The enabling condition is the actorStatus value (UPDATING_IMAGE) which is set when receiving the HTTP request.
 *)
+
+UpdateActor(a, w) == 
     /\ Len(command_queues[a]) > 0
     /\ Head(command_queues[a]).type = "UPDATE"
     /\ actorStatus[a] = "UPDATING_IMAGE"
-    \*/\ \A w \in actorWorkers[a]: revision_number_for_workers[w] = revision_number[a] <- TLAPS cannot able to proof, mostly because actorWorkers contains Workers with status IDLE, BUSY, SHUTDOWN_REQUESTED. 
-    \* In that case, revision_number_for_workers[w] = revision_number[a] may not be true for SHUTDOWN_REQUESTED status. However, this step is enabled when all workers in actorWorkers with SHUTDOWN_REQUESTED
-    \* status are stopped and released to the pool of workers.
-    \* The following condition allows Actor status going from UPDATING_IMAGE to READY if for workers of the actor status's are not "-" or "SHUTDOWN_REQUESTED" that is the status is IDLE or BUSY,
-    \* revision number used by worker should be equal to revision number of the actor
-    
-   \* /\ \A w \in Workers: (workerStatus[w].actor = a /\ workerStatus[w].status \notin {"-","SHUTDOWN_REQUESTED"})=> (revision_number_for_workers[w] = revision_number[workerStatus[w].actor])   \* an alternative to previous step      
     /\ workerStatus[w].actor = a 
     /\ workerStatus[w].status \notin {"-","SHUTDOWN_REQUESTED"}
-    \*/\ revision_number_for_workers[w] = revision_number[workerStatus[w].actor]
-    /\ hist_worker_rev_number[w].rnum = hist_actor_rev_number[workerStatus[w].actor].rnum
-    /\ Cardinality(actorWorkers[a]) >= MinimumWorkersAlwaysUpPerActor \* This condition is required so when number of workers always up falls below the threshold MinimumWorkersAlwaysUpPerActor,
-    \* createworkers is called before updating the actor's status from UPDATING_IMAGE to READY
-    /\  clock' = clock + 1
+    /\ worker_rev[w].rnum = actor_rev[workerStatus[w].actor].rnum
+    /\ Cardinality(actorWorkers[a]) >= MinimumWorkersAlwaysUpPerActor 
+    /\ clock' = clock + 1
     /\ actorStatus' = [actorStatus EXCEPT ![a] = "READY"]
     /\ command_queues' = [command_queues EXCEPT ![a] = Tail(command_queues[a])]
-    /\ UNCHANGED<<actor_msg_queues,worker_command_queues,tmsg,
-       actorWorkers, Workers, (*revision_number, revision_number_for_workers,*) workerStatus, busyworkers,idleworkers, work,hist_actor_rev_number,hist_worker_rev_number>>
+    /\ UNCHANGED<<actor_msg_queues,worker_command_queues,(*tmsg,*)
+       actorWorkers, Workers, workerStatus, busyworkers, idleworkers, (*work,*)
+       actor_rev, worker_rev>>
 
 
-StartDeleteWorker(w,a) ==
 (*
 Represents internal processing that occurrs when the autoscaler determines that a worker should be deleted.
 *)
-\* change #2 - we enable a worker to be deleted if it is IDLE and does not have the most recent image revision number:
+
+StartDeleteWorker(w,a) ==
     /\ actorStatus[a] = "UPDATING_IMAGE" 
     /\ workerStatus[w].status = "IDLE"
-    /\ workerStatus[w].actor = a \* for proof
-    \*/\ revision_number_for_workers[w] # revision_number[a]
-    /\ hist_worker_rev_number[w].rnum # hist_actor_rev_number[a].rnum
+    /\ workerStatus[w].actor = a 
     /\ w \in actorWorkers[a]
+    /\ worker_rev[w].rnum # actor_rev[a].rnum
     /\ clock' = clock + 1
-    /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"SHUTDOWN_REQUESTED"]]
-    /\ worker_command_queues' = [worker_command_queues EXCEPT ![w] = Append(worker_command_queues[w], [type |->"COMMAND", message |->"SHUTDOWN"])]
+    /\ workerStatus' = [workerStatus EXCEPT ![w]=
+        [actor|->a, status|->"SHUTDOWN_REQUESTED"]]
+    /\ worker_command_queues' = [worker_command_queues EXCEPT ![w]=
+       Append(worker_command_queues[w],[type|->"COMMAND", message|->"SHUTDOWN"])]
     /\ idleworkers' = idleworkers \ {w}
-    /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus,tmsg,  
-       actorWorkers, Workers, (*revision_number, revision_number_for_workers,*) busyworkers,work, hist_actor_rev_number,hist_worker_rev_number>>                                                  
+    /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus,(*tmsg,*) actorWorkers, 
+        Workers, busyworkers,(*work,*) actor_rev,worker_rev>>                                                  
 
-
-CompleteDeleteWorker(w,a) ==
 (*
 Represents a worker receiving a message to shutdown and completing the shutdown process.
 *)
+CompleteDeleteWorker(w,a) ==
     /\ Len(worker_command_queues[w]) > 0
     /\ Head(worker_command_queues[w]).type = "COMMAND"
     /\ Head(worker_command_queues[w]).message = "SHUTDOWN"
     /\ workerStatus[w].status = "SHUTDOWN_REQUESTED"
     /\ w \in actorWorkers[a]
-    /\ (actorStatus[a]="READY"/\ Cardinality(actorWorkers[a]) > MinimumWorkersAlwaysUpPerActor) \/ actorStatus[a]="UPDATING_IMAGE" \* note the change in condition for the proof
+    /\ \/ (actorStatus[a]="READY"
+            /\ Cardinality(actorWorkers[a]) > MinimumWorkersAlwaysUpPerActor) 
+       \/ actorStatus[a]="UPDATING_IMAGE" 
     /\ workerStatus' = [workerStatus EXCEPT ![w]=[actor|->"-", status|->"-"]]
     /\ clock' = clock + 1
-    \*/\ revision_number_for_workers' = [revision_number_for_workers EXCEPT ![w] = 0]  \* as we are releasing workers
-    /\ worker_command_queues' = [worker_command_queues EXCEPT ![w] = Tail(worker_command_queues[w])]
+    /\ worker_command_queues' = [worker_command_queues 
+                                EXCEPT ![w] = Tail(worker_command_queues[w])]
     /\ actorWorkers'=  [actorWorkers EXCEPT ![a] = actorWorkers[a] \ {w}]
-    /\ hist_worker_rev_number' = [hist_worker_rev_number EXCEPT ![w]= [rnum|->0,ts|->0]]
-    /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus, tmsg, busyworkers,
-     Workers, (*revision_number,*) idleworkers, work, hist_actor_rev_number>>
+    /\ worker_rev' = [worker_rev EXCEPT ![w]= [rnum|->0,ts|->0]]
+    /\ UNCHANGED<<actor_msg_queues,command_queues,actorStatus, (*tmsg,*) busyworkers,
+     Workers, idleworkers, (*work,*) actor_rev>>
 
  
  Createworker(w, a) ==
     /\ actorStatus[a]= "READY" \/ actorStatus[a]="UPDATING_IMAGE"
-    /\ (Len(actor_msg_queues[a]) >= ScaleUpThreshold) \/ (actorStatus[a]="UPDATING_IMAGE"/\ Cardinality(actorWorkers[a]) < MinimumWorkersAlwaysUpPerActor) \* Condition modified for proof
+    /\ \/ (Len(actor_msg_queues[a]) >= ScaleUpThreshold) 
+       \/ (actorStatus[a]="UPDATING_IMAGE"
+            /\ Cardinality(actorWorkers[a])<MinimumWorkersAlwaysUpPerActor) 
     /\ ~(\E s1 \in actorWorkers[a]: workerStatus[s1].status = "IDLE")
     /\ workerStatus[w].status = "-"
     /\ w \notin actorWorkers[a] \* required for the proof 
-    /\ Cardinality(idleworkers) + Cardinality(busyworkers) < MaxWorkers \* This condition is required for the proof of Safety property
-    /\ hist_actor_rev_number[a].ts > hist_worker_rev_number[w].ts \* adding for proof
-    /\ hist_actor_rev_number[a].rnum > hist_worker_rev_number[w].rnum \* adding for proof
-    /\  clock' = clock + 1
+    /\ Cardinality(idleworkers) + Cardinality(busyworkers) < MaxWorkers 
+    /\ actor_rev[a].rnum > worker_rev[w].rnum 
+    /\ clock' = clock + 1
     /\ workerStatus'= [workerStatus EXCEPT ![w] = [actor|->a,status|->"IDLE"]]     
     /\ idleworkers' = idleworkers \cup {w}
     /\ actorWorkers'= [actorWorkers EXCEPT ![a] =  actorWorkers[a] \cup {w}]
-    \*/\ revision_number_for_workers' = [revision_number_for_workers EXCEPT ![w] = revision_number[a]]  
-    /\ hist_worker_rev_number' = [hist_worker_rev_number EXCEPT![w] = [rnum|->hist_actor_rev_number[a].rnum, ts|->clock']]
-    /\ UNCHANGED<<Workers,actorStatus,tmsg,actor_msg_queues, work, busyworkers, command_queues, (*revision_number,*) worker_command_queues, hist_actor_rev_number>>
+    /\ worker_rev' = [worker_rev 
+            EXCEPT![w] = [rnum|->actor_rev[a].rnum, ts|->clock']]
+    /\ UNCHANGED<<Workers,actorStatus,(*tmsg,*) actor_msg_queues, (*work,*) busyworkers, 
+            command_queues,  worker_command_queues, actor_rev>>
         
 
- WorkerRecv(s,a) == 
+ WorkerRecv(w,a) == 
     /\  Len(actor_msg_queues[a]) > 0 
     /\  actorStatus[a]= "READY" \/ actorStatus[a]="UPDATING_IMAGE" 
-    \*/\  revision_number_for_workers[s] = revision_number[a]
-    /\ hist_worker_rev_number[s].rnum = hist_actor_rev_number[a].rnum
-    /\  workerStatus[s].actor = a
-    /\  workerStatus[s].status = "IDLE"
+    /\  worker_rev[w].rnum  = actor_rev[a].rnum
+    /\  workerStatus[w].actor = a
+    /\  workerStatus[w].status = "IDLE"
     /\  clock' = clock + 1
     /\  actor_msg_queues'= [actor_msg_queues EXCEPT ![a] = Tail(actor_msg_queues[a])]
-    /\  workerStatus'= [workerStatus EXCEPT ![s] = [actor|->a,status|->"BUSY"]]
-    \*/\  workerStatus'= [workerStatus EXCEPT ![s] = [actor|->a,status|->"STARTING_EXECUTION"]]
-    /\  busyworkers' = busyworkers \cup {s}
-    /\  idleworkers' = idleworkers \ {s}
-    /\  UNCHANGED<<Workers, actorStatus, actorWorkers, tmsg, work, command_queues, (*revision_number, revision_number_for_workers,*) worker_command_queues, hist_actor_rev_number, hist_worker_rev_number>>
+    /\  workerStatus'= [workerStatus EXCEPT ![w] = [actor|->a,status|->"BUSY"]]
+    /\  busyworkers' = busyworkers \cup {w}
+    /\  idleworkers' = idleworkers \ {w}
+    /\  UNCHANGED<<Workers, actorStatus, actorWorkers, (*tmsg, work,*) command_queues, 
+            worker_command_queues, actor_rev, worker_rev>>
    
    
  workerBusy(w, a) ==
@@ -369,27 +357,31 @@ Represents a worker receiving a message to shutdown and completing the shutdown 
     /\  workerStatus[w].actor = a
     /\  workerStatus[w].status = "BUSY"
     /\  clock' = clock + 1
-    /\  work' = (work % MaxMessage) + 1
+    \*/\  work' = (work % MaxMessage) + 1
     /\  workerStatus'= [workerStatus EXCEPT ![w] = [actor|->a, status|->"IDLE"]]
     /\  idleworkers' = idleworkers \cup {w}  
     /\  busyworkers' = busyworkers \ {w}
-    /\  UNCHANGED<<Workers, actorStatus, actorWorkers, tmsg, actor_msg_queues, command_queues, (*revision_number, revision_number_for_workers,*) worker_command_queues,hist_actor_rev_number,hist_worker_rev_number>>
+    /\  UNCHANGED<<Workers, actorStatus, actorWorkers, (*tmsg,*) actor_msg_queues, command_queues,
+         worker_command_queues, actor_rev, worker_rev>>
 
 
  Stopworker(w,a) == 
     /\  Len(actor_msg_queues[a]) = 0
-   \* /\  revision_number_for_workers[w] = revision_number[a]
-    /\  hist_worker_rev_number[w].rnum = hist_actor_rev_number[a].rnum
+    /\  worker_rev[w].rnum  = actor_rev[a].rnum
     /\  workerStatus[w].actor = a
     /\  workerStatus[w].status = "IDLE"
-    /\  Cardinality({w1 \in actorWorkers[a]:workerStatus[w1].status="IDLE" }) > MinimumWorkersAlwaysUpPerActor \* note the change in the condition. a worker can be in actorWorkers set but in SHUTDOWN_REQUESTED Status
+    /\  Cardinality({w1 \in actorWorkers[a]:workerStatus[w1].status="IDLE" }) 
+        > MinimumWorkersAlwaysUpPerActor 
     /\  actorStatus[a]="READY"
-    /\  w \in actorWorkers[a] \* required for proof and also a required condition
+    /\  w \in actorWorkers[a] 
     /\  clock' = clock + 1
-    /\  workerStatus' = [workerStatus EXCEPT ![w]=[actor|->a, status|->"SHUTDOWN_REQUESTED"]]
-    /\  worker_command_queues' = [worker_command_queues EXCEPT ![w] = Append(worker_command_queues[w], [type |->"COMMAND", message |->"SHUTDOWN"])]
+    /\  workerStatus' = [workerStatus EXCEPT ![w] =
+        [actor|->a, status|->"SHUTDOWN_REQUESTED"]]
+    /\  worker_command_queues' = [worker_command_queues EXCEPT ![w] = 
+        Append(worker_command_queues[w], [type |->"COMMAND", message |->"SHUTDOWN"])]
     /\  idleworkers' = idleworkers \ {w}
-    /\  UNCHANGED<<Workers,actorStatus, tmsg,actor_msg_queues, work,actorWorkers, busyworkers,command_queues, (*revision_number, revision_number_for_workers,*) hist_actor_rev_number,hist_worker_rev_number>>
+    /\  UNCHANGED<<Workers,actorStatus, (*tmsg,*) actor_msg_queues, (*work,*) actorWorkers, busyworkers,
+        command_queues, actor_rev,worker_rev>>
     
  Next == 
        \/ \E w \in Workers, a \in Actors: Startworker(w, a)
@@ -474,8 +466,8 @@ THEOREM TypeCorrect == Spec => []IInv
                workerBusy(s,a)
         PROVE IInv'
         
-        <3>1. work' \in 1..MaxMessage
-            BY <2>5 DEF workerBusy
+        (*<3>1. work' \in 1..MaxMessage
+            BY <2>5 DEF workerBusy*)
         <3>2. clock' \in Nat
          BY <2>5 DEF workerBusy    
         <3>2a. actorStatus' \in [Actors -> ActorState ] 
@@ -484,7 +476,7 @@ THEOREM TypeCorrect == Spec => []IInv
           BY <2>5 DEF workerBusy
       
         <3>20.QED
-            BY <2>5,<3>1,<3>2,<3>3 DEF workerBusy                          
+            BY <2>5,(*<3>1,*)<3>2,<3>2a,<3>3 DEF workerBusy                          
   <2>6. ASSUME NEW s \in Workers,
                NEW a \in Actors,
                Stopworker(s, a)
@@ -830,8 +822,8 @@ THEOREM SafetyPropertyTheorem == Spec => []SafetyProperty
 
 
 (*
-   ClockInv ==  /\ \A a \in Actors: hist_actor_rev_number[a].ts<= clock 
-             /\ \A w \in Workers: hist_worker_rev_number[w].ts<=clock    
+   ClockInv ==  /\ \A a \in Actors: actor_rev[a].ts<= clock 
+             /\ \A w \in Workers: worker_rev[w].ts<=clock    
    
 *)
 
@@ -913,30 +905,30 @@ THEOREM Spec=>[]ClockInv
 --------------------------------------------------------------------------------------------------
 *)
 
-\*SafetyProperty1 ==  \A w \in Workers:  workerStatus[w].actor # "-" =>  (hist_worker_rev_number[w].rnum = hist_actor_rev_number[workerStatus[w].actor].rnum => hist_actor_rev_number[workerStatus[w].actor].ts < hist_worker_rev_number[w].ts)
+\*RevisionNumberInv ==  \A w \in Workers:  workerStatus[w].actor # "-" =>  (worker_rev[w].rnum = actor_rev[workerStatus[w].actor].rnum => actor_rev[workerStatus[w].actor].ts < worker_rev[w].ts)
 
-IInv2 == TypeInvariant /\ SafetyProperty /\ SafetyProperty1/\ClockInv   
+IInv2 == TypeInvariant /\ SafetyProperty /\ RevisionNumberInv/\ClockInv   
 
 
-THEOREM Spec => []SafetyProperty1   
-<1>1. Init => SafetyProperty1 /\ ClockInv   
-     BY  SpecAssumption DEF IInv, TypeInvariant, Init,workerState, ActorState, AllActors, ActorMessage, SafetyProperty,SafetyProperty1,ClockInv   
+THEOREM Spec => []RevisionNumberInv   
+<1>1. Init => RevisionNumberInv /\ ClockInv   
+     BY  SpecAssumption DEF IInv, TypeInvariant, Init,workerState, ActorState, AllActors, ActorMessage, SafetyProperty,RevisionNumberInv,ClockInv   
    
 
-<1>2. IInv /\ SafetyProperty/\ ClockInv /\ SafetyProperty1 /\ ClockInv/\ [Next]_vars => SafetyProperty1'/\ ClockInv' 
+<1>2. IInv /\ SafetyProperty/\ ClockInv /\ RevisionNumberInv /\ ClockInv/\ [Next]_vars => RevisionNumberInv'/\ ClockInv' 
   <2> SUFFICES ASSUME IInv,
                       SafetyProperty,
-                      SafetyProperty1,
+                      RevisionNumberInv,
                       [Next]_vars, ClockInv
-               PROVE  SafetyProperty1'/\ ClockInv'
-    BY DEF IInv, SafetyProperty, SafetyProperty1
-  <2>.USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalworkersRunning, AllActors, CommandMessage, WorkerMessage,SafetyProperty1,ClockInv       
+               PROVE  RevisionNumberInv'/\ ClockInv'
+    BY DEF IInv, SafetyProperty, RevisionNumberInv
+  <2>.USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalworkersRunning, AllActors, CommandMessage, WorkerMessage,RevisionNumberInv,ClockInv       
   <2>1. ASSUME NEW w \in Workers,
             NEW a \in Actors,
                Startworker(w,a)
-        PROVE  SafetyProperty1'/\ ClockInv' 
-    <3>1. SafetyProperty1'
-        <4>1. workerStatus'[w].actor # "-" =>((hist_worker_rev_number'[w].rnum <  hist_actor_rev_number'[a].rnum) =>(hist_actor_rev_number'[a].ts >= hist_worker_rev_number'[w].ts))
+        PROVE  RevisionNumberInv'/\ ClockInv' 
+    <3>1. RevisionNumberInv'
+        <4>1. workerStatus'[w].actor # "-" =>((worker_rev'[w].rnum <  actor_rev'[a].rnum) =>(actor_rev'[a].ts >= worker_rev'[w].ts))
             BY <2>1 DEF Startworker
       
        <4>2. QED BY <2>1, <4>1 DEF Startworker
@@ -950,15 +942,15 @@ THEOREM Spec => []SafetyProperty1
   <2>2. ASSUME NEW msg \in ActorMessage,
                NEW a \in Actors,
                APIExecuteRecv(msg, a)
-        PROVE  SafetyProperty1' /\ ClockInv'
+        PROVE  RevisionNumberInv' /\ ClockInv'
         BY <2>2 DEF APIExecuteRecv  
   
   <2>3. ASSUME NEW w \in Workers,
             NEW a \in Actors,
                Createworker(w,a)
-        PROVE  SafetyProperty1'/\ ClockInv' 
-       <3>1. SafetyProperty1'
-        <4>1. workerStatus'[w].actor # "-" =>((hist_worker_rev_number'[w].rnum <  hist_actor_rev_number'[a].rnum) =>(hist_actor_rev_number'[a].ts >= hist_worker_rev_number'[w].ts))
+        PROVE  RevisionNumberInv'/\ ClockInv' 
+       <3>1. RevisionNumberInv'
+        <4>1. workerStatus'[w].actor # "-" =>((worker_rev'[w].rnum <  actor_rev'[a].rnum) =>(actor_rev'[a].ts >= worker_rev'[w].ts))
             BY <2>3 DEF Createworker 
       
         <4>2. QED 
@@ -973,8 +965,8 @@ THEOREM Spec => []SafetyProperty1
                  NEW a \in Actors,
                WorkerRecv(w,a)
               
-        PROVE  SafetyProperty1'/\ ClockInv' 
-      <3>1. SafetyProperty1'
+        PROVE  RevisionNumberInv'/\ ClockInv' 
+      <3>1. RevisionNumberInv'
        BY <2>4 DEF WorkerRecv 
       <3>2. ClockInv'
       BY <2>4 DEF WorkerRecv 
@@ -984,8 +976,8 @@ THEOREM Spec => []SafetyProperty1
   <2>5. ASSUME NEW s \in Workers,
                  NEW a \in Actors,
                workerBusy(s,a)
-        PROVE  SafetyProperty1'/\ ClockInv' 
-       <3>1. SafetyProperty1'
+        PROVE  RevisionNumberInv'/\ ClockInv' 
+       <3>1. RevisionNumberInv'
        BY <2>5 DEF workerBusy 
       <3>2. ClockInv'
       BY <2>5 DEF workerBusy 
@@ -995,8 +987,8 @@ THEOREM Spec => []SafetyProperty1
   <2>6. ASSUME NEW s \in Workers,
                  NEW a \in Actors,
                Stopworker(s,a)
-        PROVE  SafetyProperty1'/\ ClockInv' 
-       <3>1. SafetyProperty1'
+        PROVE  RevisionNumberInv'/\ ClockInv' 
+       <3>1. RevisionNumberInv'
       BY <2>6 DEF Stopworker
       <3>2. ClockInv'
       BY <2>6 DEF Stopworker
@@ -1006,9 +998,9 @@ THEOREM Spec => []SafetyProperty1
   <2>7. ASSUME NEW msg \in CommandMessage,
         NEW a \in Actors,
         ActorUpdateRecv(msg, a) 
-        PROVE SafetyProperty1'/\ ClockInv' 
-       <3>1. SafetyProperty1'
-        <4>1. \A w \in Workers: workerStatus'[w].actor = a =>((hist_worker_rev_number'[w].rnum <  hist_actor_rev_number'[workerStatus'[w].actor].rnum) =>(hist_actor_rev_number'[workerStatus'[w].actor].ts >= hist_worker_rev_number'[w].ts))
+        PROVE RevisionNumberInv'/\ ClockInv' 
+       <3>1. RevisionNumberInv'
+        <4>1. \A w \in Workers: workerStatus'[w].actor = a =>((worker_rev'[w].rnum <  actor_rev'[workerStatus'[w].actor].rnum) =>(actor_rev'[workerStatus'[w].actor].ts >= worker_rev'[w].ts))
            BY <2>7 DEF ActorUpdateRecv
       
        <4>2. QED 
@@ -1019,8 +1011,8 @@ THEOREM Spec => []SafetyProperty1
   <2>8. ASSUME NEW a \in Actors, 
         NEW w \in Workers, 
        UpdateActor(a, w)
-       PROVE SafetyProperty1'/\ ClockInv' 
-      <3>1. SafetyProperty1'
+       PROVE RevisionNumberInv'/\ ClockInv' 
+      <3>1. RevisionNumberInv'
       BY <2>8 DEF UpdateActor
       <3>2. ClockInv'
       BY <2>8 DEF UpdateActor
@@ -1030,8 +1022,8 @@ THEOREM Spec => []SafetyProperty1
   <2>9.  ASSUME NEW w \in Workers, 
         NEW a \in Actors,
          StartDeleteWorker(w,a) 
-         PROVE SafetyProperty1'/\ ClockInv' 
-      <3>1. SafetyProperty1'
+         PROVE RevisionNumberInv'/\ ClockInv' 
+      <3>1. RevisionNumberInv'
       BY <2>9 DEF StartDeleteWorker
       <3>2. ClockInv'
       BY <2>9 DEF StartDeleteWorker
@@ -1041,8 +1033,8 @@ THEOREM Spec => []SafetyProperty1
   <2>10. ASSUME NEW  a \in Actors,
           NEW w \in Workers,
             CompleteDeleteWorker(w,a)  
-            PROVE SafetyProperty1'/\ ClockInv' 
-      <3>1. SafetyProperty1'
+            PROVE RevisionNumberInv'/\ ClockInv' 
+      <3>1. RevisionNumberInv'
       BY <2>10 DEF CompleteDeleteWorker
       <3>2. ClockInv'
       BY <2>10 DEF CompleteDeleteWorker
@@ -1050,7 +1042,7 @@ THEOREM Spec => []SafetyProperty1
      
       
   <2>14. ASSUME NEW a \in Actors, UpdateActorStatus(a)
-          PROVE SafetyProperty1'/\ ClockInv' 
+          PROVE RevisionNumberInv'/\ ClockInv' 
           BY <2>14 DEF  UpdateActorStatus      
   <2>15. CASE UNCHANGED vars
         BY <2>15 DEF vars
@@ -1058,16 +1050,7 @@ THEOREM Spec => []SafetyProperty1
     BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>6,<2>7,<2>8,<2>9,<2>10,<2>14,<2>15,ClockInv,FS_EmptySet,FS_Interval,FS_AddElement, FS_RemoveElement, FS_CardinalityType, FS_Subset DEF Next
  
 <1>. QED  BY <1>1, <1>2, TypeCorrect, SafetyPropertyTheorem, PTL DEF Spec
-
-
-   
-          
-
-     
-  
-
-
 =============================================================================
 \* Modification History
-\* Last modified Wed May 05 16:41:29 CDT 2021 by spadhy
-\* Created Tue Apr 27 09:38:58 CDT 2021 by spadhy
+\* Last modified Mon May 03 14:13:24 CDT 2021 by spadhy
+\* Created Sat May 01 09:34:58 CDT 2021 by spadhy
