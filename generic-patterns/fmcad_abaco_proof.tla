@@ -484,7 +484,7 @@ THEOREM TypeCorrect == Spec => []IInv
           BY <2>5 DEF workerBusy
       
         <3>20.QED
-            BY <2>5,<3>1,<3>2,<3>3 DEF workerBusy                          
+            BY <2>5,<3>1,<3>2,<3>2a,<3>3 DEF workerBusy                          
   <2>6. ASSUME NEW s \in Workers,
                NEW a \in Actors,
                Stopworker(s, a)
@@ -1069,5 +1069,5 @@ THEOREM Spec => []SafetyProperty1
 
 =============================================================================
 \* Modification History
-\* Last modified Wed May 05 16:41:29 CDT 2021 by spadhy
+\* Last modified Fri May 14 14:01:41 CDT 2021 by spadhy
 \* Created Tue Apr 27 09:38:58 CDT 2021 by spadhy
