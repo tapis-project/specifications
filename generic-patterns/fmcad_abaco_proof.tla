@@ -119,15 +119,15 @@ ClockInv ==  /\ \A a \in Actors:actorRev[a].ts<= clock
              /\ \A w \in Workers: workerRev[w].ts<=clock    
 
 
-SafetyProperty ==  /\ Cardinality(idleWorkers) \in 0..MaxWorkers
+MinimalWorkerProperty ==  /\ Cardinality(idleWorkers) \in 0..MaxWorkers
                    /\ Cardinality(busyWorkers) \in 0..MaxWorkers
                    /\ IsFiniteSet(idleWorkers)
                    /\ IsFiniteSet(busyWorkers)
                    /\ Cardinality(idleWorkers) + Cardinality(busyWorkers) <= MaxWorkers
                    /\ \A s \in Workers:workerStatus[s].status = "IDLE" => s \in idleWorkers
-                   /\ \A s \in Workers:workerStatus[s].status = "BUSY" => s \in busyWorkers
-                   /\ \A a\in Actors: IsFiniteSet(actorWorkers[a])
-                   /\ \A a \in Actors: actorStatus[a]="READY"=>(Cardinality(actorWorkers[a]) >= MinimumWorkersAlwaysUpPerActor)
+                   /\ \A s1 \in Workers:workerStatus[s1].status = "BUSY" => s1 \in busyWorkers
+                   /\ \A a \in Actors: IsFiniteSet(actorWorkers[a])
+                   /\ \A a1 \in Actors: actorStatus[a1]="READY"=>(Cardinality(actorWorkers[a1]) >= MinimumWorkersAlwaysUpPerActor)
                    
                    
 
@@ -553,10 +553,10 @@ THEOREM TypeCorrect == Spec => []IInv
 
 ---------------------------------------------------------------------------------------------------------
 (******************************* inductive Invariant - Safety Property proof ******************************************)
-THEOREM SafetyPropertyTheorem == Spec => []SafetyProperty
-<1>1. Init => SafetyProperty
+THEOREM SafetyPropertyTheorem == Spec => []MinimalWorkerProperty
+<1>1. Init => MinimalWorkerProperty
    <2> SUFFICES ASSUME Init
-                PROVE  SafetyProperty
+                PROVE  MinimalWorkerProperty
      OBVIOUS
    
    <2>1. IsFiniteSet(idleWorkers)
@@ -582,19 +582,19 @@ THEOREM SafetyPropertyTheorem == Spec => []SafetyProperty
         BY  <2>1,<2>2, SpecAssumption, FS_EmptySet, FS_Subset DEF Init
     
    <2>11. QED
-       BY <2>1, <2>2, <2>4,<2>5,<2>6,<2>7,<2>8,<2>9,<2>10 DEF SafetyProperty
+       BY <2>1, <2>2, <2>4,<2>5,<2>6,<2>7,<2>8,<2>9,<2>10 DEF MinimalWorkerProperty
  
-<1>2. IInv /\ SafetyProperty /\ [Next]_vars => SafetyProperty'
+<1>2. IInv /\ MinimalWorkerProperty /\ [Next]_vars => MinimalWorkerProperty'
   <2> SUFFICES ASSUME IInv,
-                      SafetyProperty,
+                      MinimalWorkerProperty,
                       [Next]_vars
-               PROVE  SafetyProperty'
-    BY DEF SafetyProperty
-  <2>.USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalWorkersRunning, AllActors, CommandMessage, WorkerMessage
+               PROVE  MinimalWorkerProperty'
+    BY DEF MinimalWorkerProperty
+  <2>.USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, MinimalWorkerProperty,TotalWorkersRunning, AllActors, CommandMessage, WorkerMessage
   <2>1. ASSUME NEW s \in Workers,
             NEW a \in Actors,
                InitializeMinimalWorkers(s,a)
-        PROVE  SafetyProperty'
+        PROVE  MinimalWorkerProperty'
         <3>1. IsFiniteSet(Workers')
             BY <2>1, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF InitializeMinimalWorkers 
         <3>2. IsFiniteSet(idleWorkers')
@@ -617,13 +617,13 @@ THEOREM SafetyPropertyTheorem == Spec => []SafetyProperty
   <2>2. ASSUME NEW msg \in ActorMessage,
                NEW a \in Actors,
                HTTPActorMessageRecv(msg, a)
-        PROVE  SafetyProperty'
+        PROVE  MinimalWorkerProperty'
         BY <2>2 DEF HTTPActorMessageRecv  
   
   <2>3. ASSUME NEW s \in Workers,
             NEW a \in Actors,
                CreateWorker(s,a)
-        PROVE  SafetyProperty'
+        PROVE  MinimalWorkerProperty'
          
        <3>1. IsFiniteSet(Workers')
             BY <2>3, FS_EmptySet, FS_Interval, FS_AddElement, FS_Subset DEF CreateWorker 
@@ -681,7 +681,7 @@ THEOREM SafetyPropertyTheorem == Spec => []SafetyProperty
                  NEW a \in Actors,
                WorkerIdleToBusy(s,a)
               
-        PROVE  SafetyProperty'
+        PROVE  MinimalWorkerProperty'
             
         <3>1. IsFiniteSet(idleWorkers')
             BY <2>4, FS_EmptySet, FS_Subset DEF WorkerIdleToBusy
@@ -698,7 +698,7 @@ THEOREM SafetyPropertyTheorem == Spec => []SafetyProperty
   <2>5. ASSUME NEW s \in Workers,
                  NEW a \in Actors,
                WorkerIBusyToIdle(s,a)
-        PROVE  SafetyProperty'
+        PROVE  MinimalWorkerProperty'
         <3>1. IsFiniteSet(idleWorkers')
             BY <2>5, FS_EmptySet, FS_AddElement, FS_Subset DEF WorkerIBusyToIdle
         <3>2. IsFiniteSet(busyWorkers')
@@ -722,7 +722,7 @@ THEOREM SafetyPropertyTheorem == Spec => []SafetyProperty
   <2>6. ASSUME NEW s \in Workers,
                  NEW a \in Actors,
                WorkerIdleToShutdownReqd(s,a)
-        PROVE  SafetyProperty'
+        PROVE  MinimalWorkerProperty'
          <3>1. IsFiniteSet(idleWorkers')
             BY <2>6,FS_EmptySet, FS_Subset DEF WorkerIdleToShutdownReqd
         <3>2. IsFiniteSet(busyWorkers')
@@ -749,22 +749,22 @@ THEOREM SafetyPropertyTheorem == Spec => []SafetyProperty
   <2>7. ASSUME NEW msg \in CommandMessage,
         NEW a \in Actors,
         HTTPActorUpdateRecv(msg, a) 
-        PROVE SafetyProperty'
+        PROVE MinimalWorkerProperty'
         BY <2>7 DEF HTTPActorUpdateRecv
   <2>8. ASSUME NEW a \in Actors,
   NEW w \in Workers,
        ProcessUpdateActor(a,w)
-       PROVE SafetyProperty'
+       PROVE MinimalWorkerProperty'
         <3>1. TypeInvariant'
         BY <2>8 DEF ProcessUpdateActor
-        <3>2. SafetyProperty'
+        <3>2. MinimalWorkerProperty'
          BY <2>8 DEF ProcessUpdateActor
         <3>10. QED
       BY <2>8, <3>1,<3>2 DEF ProcessUpdateActor 
   <2>9.  ASSUME NEW w \in Workers, 
         NEW a \in Actors,
          StartDeleteWorker(w,a) 
-         PROVE SafetyProperty'
+         PROVE MinimalWorkerProperty'
         <3>1. IsFiniteSet(idleWorkers')
             BY <2>9,FS_EmptySet, FS_Subset DEF StartDeleteWorker
         <3>2. IsFiniteSet(busyWorkers')
@@ -790,7 +790,7 @@ THEOREM SafetyPropertyTheorem == Spec => []SafetyProperty
   <2>10. ASSUME NEW  a \in Actors,
           NEW w \in Workers,
             CompleteDeleteWorker(w,a)  
-            PROVE SafetyProperty'
+            PROVE MinimalWorkerProperty'
         
     
      <3>1. IsFiniteSet(idleWorkers')
@@ -834,7 +834,7 @@ THEOREM SafetyPropertyTheorem == Spec => []SafetyProperty
   <2>15. CASE UNCHANGED vars
         BY <2>15 DEF vars
    <2>16. ASSUME NEW a \in Actors, InitializeActorStatusReady(a)
-          PROVE SafetyProperty'
+          PROVE MinimalWorkerProperty'
           BY <2>16 DEF  InitializeActorStatusReady     
   <2>17. QED
     BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>6,<2>7,<2>8,<2>9,<2>10,<2>15, <2>16 DEF Next
@@ -859,7 +859,7 @@ THEOREM Spec=>[]ClockInv
                         [Next]_vars
                  PROVE  ClockInv'
       OBVIOUS
-    <2>. USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalWorkersRunning, AllActors, CommandMessage, WorkerMessage, ClockInv
+    <2>. USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, MinimalWorkerProperty,TotalWorkersRunning, AllActors, CommandMessage, WorkerMessage, ClockInv
     <2>1. ASSUME NEW w \in Workers,
                  NEW a \in Actors,
                  InitializeMinimalWorkers(w, a)
@@ -930,22 +930,26 @@ THEOREM Spec=>[]ClockInv
 
 \*RevisionNumberInv ==  \A w \in Workers:  workerStatus[w].actor # "-" =>  (workerRev[w].rnum =actorRev[workerStatus[w].actor].rnum =>actorRev[workerStatus[w].actor].ts < workerRev[w].ts)
 
-IInv2 == TypeInvariant /\ SafetyProperty /\ RevisionNumberInv/\ClockInv   
+IInv2 == 
+    /\ TypeInvariant 
+    /\ MinimalWorkerProperty 
+    /\ RevisionNumberInv 
+    /\ ClockInv   
 
 
 THEOREM Spec => []RevisionNumberInv   
 <1>1. Init => RevisionNumberInv /\ ClockInv   
-     BY  SpecAssumption DEF IInv, TypeInvariant, Init,workerState, ActorState, AllActors, ActorMessage, SafetyProperty,RevisionNumberInv,ClockInv   
+     BY  SpecAssumption DEF IInv, TypeInvariant, Init,workerState, ActorState, AllActors, ActorMessage, MinimalWorkerProperty,RevisionNumberInv,ClockInv   
    
 
-<1>2. IInv /\ SafetyProperty/\ ClockInv /\ RevisionNumberInv /\ ClockInv/\ [Next]_vars => RevisionNumberInv'/\ ClockInv' 
+<1>2. IInv /\ MinimalWorkerProperty/\ ClockInv /\ RevisionNumberInv /\ [Next]_vars => RevisionNumberInv'/\ ClockInv' 
   <2> SUFFICES ASSUME IInv,
-                      SafetyProperty,
+                      MinimalWorkerProperty,
                       RevisionNumberInv,
                       [Next]_vars, ClockInv
                PROVE  RevisionNumberInv'/\ ClockInv'
-    BY DEF IInv, SafetyProperty, RevisionNumberInv
-  <2>.USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, SafetyProperty,TotalWorkersRunning, AllActors, CommandMessage, WorkerMessage,RevisionNumberInv,ClockInv       
+    BY DEF IInv, MinimalWorkerProperty, RevisionNumberInv
+  <2>.USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, MinimalWorkerProperty,TotalWorkersRunning, AllActors, CommandMessage, WorkerMessage,RevisionNumberInv,ClockInv       
   <2>1. ASSUME NEW w \in Workers,
             NEW a \in Actors,
                InitializeMinimalWorkers(w,a)
@@ -1084,5 +1088,5 @@ THEOREM Spec => []RevisionNumberInv
 
 =============================================================================
 \* Modification History
-\* Last modified Fri May 14 15:00:54 CDT 2021 by spadhy
+\* Last modified Sat May 15 16:19:42 CDT 2021 by spadhy
 \* Created Tue Apr 27 09:38:58 CDT 2021 by spadhy
