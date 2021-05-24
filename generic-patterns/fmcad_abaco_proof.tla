@@ -439,30 +439,30 @@ FairSpec == Spec
 (*------------------------------------------------ Proof -------------------------------------*)
 
 
-IInv == TypeInvariant
+\*TypeInvariant == TypeInvariant
 
 
  
-THEOREM TypeCorrect == Spec => []IInv
-<1>1. Init => IInv
-  BY SpecAssumption DEF Init, IInv, TypeInvariant, workerState, ActorState, AllActors, ActorMessage
+THEOREM TypeCorrect == Spec => []TypeInvariant
+<1>1. Init => TypeInvariant
+  BY SpecAssumption DEF Init, TypeInvariant, workerState, ActorState, AllActors, ActorMessage
 
-<1>2. IInv /\ [Next]_vars => IInv'
+<1>2. TypeInvariant /\ [Next]_vars => TypeInvariant'
 
-<2> SUFFICES ASSUME IInv,
+<2> SUFFICES ASSUME TypeInvariant,
                       [Next]_vars
-               PROVE  IInv'
+               PROVE  TypeInvariant'
     OBVIOUS
-  <2>. USE SpecAssumption DEF Init, IInv, TypeInvariant, workerState, ActorState, AllActors, ActorMessage, CommandMessage,WorkerMessage
+  <2>. USE SpecAssumption DEF Init, TypeInvariant, workerState, ActorState, AllActors, ActorMessage, CommandMessage,WorkerMessage
   <2>1. ASSUME NEW msg \in ActorMessage,
         NEW a \in Actors,
                HTTPActorMessageRecv(msg,a)
-        PROVE  IInv'
+        PROVE  TypeInvariant'
      BY <2>1 DEF HTTPActorMessageRecv 
   <2>2. ASSUME NEW s \in Workers,
                NEW a \in Actors,   
                InitializeMinimalWorkers(s,a)  
-        PROVE IInv'   
+        PROVE TypeInvariant'   
         <3>1. workerStatus' \in [Workers -> [status:workerState,actor:AllActors]] 
              BY <2>2 DEF InitializeMinimalWorkers
         <3>2. workerCommandQueues' \in [Workers -> Seq(WorkerMessage)] \* multiple queues
@@ -474,7 +474,7 @@ THEOREM TypeCorrect == Spec => []IInv
    <2>3. ASSUME NEW s \in Workers,
                NEW a \in Actors,
                CreateWorker(s, a)
-        PROVE IInv'
+        PROVE TypeInvariant'
         
         <3>1. clock' \in Nat
          BY <2>3 DEF CreateWorker
@@ -483,12 +483,12 @@ THEOREM TypeCorrect == Spec => []IInv
   <2>4. ASSUME NEW s \in Workers,
                NEW a \in Actors,  
                  WorkerIdleToBusy(s, a)
-        PROVE IInv'
+        PROVE TypeInvariant'
      BY <2>4 DEF WorkerIdleToBusy
   <2>5. ASSUME NEW s \in Workers,
                NEW a \in Actors, 
                WorkerIBusyToIdle(s,a)
-        PROVE IInv'
+        PROVE TypeInvariant'
         
         <3>1. work' \in 1..MaxHTTPRequests
             BY <2>5 DEF WorkerIBusyToIdle
@@ -504,7 +504,7 @@ THEOREM TypeCorrect == Spec => []IInv
   <2>6. ASSUME NEW s \in Workers,
                NEW a \in Actors,
                WorkerIdleToShutdownReqd(s, a)
-        PROVE IInv'
+        PROVE TypeInvariant'
         <3>1. workerCommandQueues' \in [Workers -> Seq(WorkerMessage)] \* multiple queues
              BY <2>6 DEF WorkerIdleToShutdownReqd
         <3>2. clock' \in Nat
@@ -518,16 +518,16 @@ THEOREM TypeCorrect == Spec => []IInv
   <2>7. ASSUME NEW msg \in CommandMessage,
         NEW a \in Actors,
         HTTPActorUpdateRecv(msg, a) 
-        PROVE IInv'
+        PROVE TypeInvariant'
         BY <2>7 DEF HTTPActorUpdateRecv
   <2>8.  ASSUME NEW  a\in Actors, NEW w\in Workers,
          ProcessUpdateActor(a,w)
-         PROVE IInv'
+         PROVE TypeInvariant'
      BY <2>8 DEF ProcessUpdateActor    
   <2>9.   ASSUME NEW  a \in Actors,
           NEW w \in Workers,
             StartDeleteWorker(w,a)  
-            PROVE IInv'
+            PROVE TypeInvariant'
      
         <3>1. workerCommandQueues' \in [Workers -> Seq(WorkerMessage)] \* multiple queues
               BY <2>9 DEF StartDeleteWorker 
@@ -539,12 +539,12 @@ THEOREM TypeCorrect == Spec => []IInv
    <2>10. ASSUME NEW  a \in Actors,
           NEW w \in Workers,
             CompleteDeleteWorker(w,a)  
-            PROVE IInv'
+            PROVE TypeInvariant'
          BY <2>10 DEF CompleteDeleteWorker                 
   <2>12. CASE UNCHANGED vars
     BY <2>12 DEF vars
   <2>13. ASSUME NEW a \in Actors, InitializeActorStatusReady(a)
-          PROVE IInv'
+          PROVE TypeInvariant'
           BY <2>13 DEF  InitializeActorStatusReady
   <2>14. QED
     BY <2>1,<2>2,<2>3,<2>4,<2>5,<2>6,<2>7, <2>8,<2>9,<2>10,<2>12, <2>13 DEF Next
@@ -554,7 +554,7 @@ THEOREM TypeCorrect == Spec => []IInv
 
 ---------------------------------------------------------------------------------------------------------
 (******************************* inductive Invariant - Safety Property proof ******************************************)
-THEOREM SafetyPropertyTheorem == Spec => []MinimalWorkerProperty
+THEOREM MinimalWorkerTheorem == Spec => []MinimalWorkerProperty
 <1>1. Init => MinimalWorkerProperty
    <2> SUFFICES ASSUME Init
                 PROVE  MinimalWorkerProperty
@@ -585,13 +585,13 @@ THEOREM SafetyPropertyTheorem == Spec => []MinimalWorkerProperty
    <2>11. QED
        BY <2>1, <2>2, <2>4,<2>5,<2>6,<2>7,<2>8,<2>9,<2>10 DEF MinimalWorkerProperty
  
-<1>2. IInv /\ MinimalWorkerProperty /\ [Next]_vars => MinimalWorkerProperty'
-  <2> SUFFICES ASSUME IInv,
+<1>2. TypeInvariant /\ MinimalWorkerProperty /\ [Next]_vars => MinimalWorkerProperty'
+  <2> SUFFICES ASSUME TypeInvariant,
                       MinimalWorkerProperty,
                       [Next]_vars
                PROVE  MinimalWorkerProperty'
     BY DEF MinimalWorkerProperty
-  <2>.USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, MinimalWorkerProperty,TotalWorkersRunning, AllActors, CommandMessage, WorkerMessage
+  <2>.USE SpecAssumption DEF TypeInvariant, Init, workerState, ActorMessage, ActorState, MinimalWorkerProperty,TotalWorkersRunning, AllActors, CommandMessage, WorkerMessage
   <2>1. ASSUME NEW s \in Workers,
             NEW a \in Actors,
                InitializeMinimalWorkers(s,a)
@@ -854,13 +854,13 @@ THEOREM SafetyPropertyTheorem == Spec => []MinimalWorkerProperty
 THEOREM Spec=>[]ClockInv
   <1>1. Init => ClockInv
   BY  DEF Init, ClockInv
-  <1>2. IInv /\ ClockInv /\ [Next]_vars => ClockInv'
-    <2> SUFFICES ASSUME IInv,
+  <1>2. TypeInvariant /\ ClockInv /\ [Next]_vars => ClockInv'
+    <2> SUFFICES ASSUME TypeInvariant,
                         ClockInv,
                         [Next]_vars
                  PROVE  ClockInv'
       OBVIOUS
-    <2>. USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, MinimalWorkerProperty,TotalWorkersRunning, AllActors, CommandMessage, WorkerMessage, ClockInv
+    <2>. USE SpecAssumption DEF TypeInvariant, Init, workerState, ActorMessage, ActorState, MinimalWorkerProperty,TotalWorkersRunning, AllActors, CommandMessage, WorkerMessage, ClockInv
     <2>1. ASSUME NEW w \in Workers,
                  NEW a \in Actors,
                  InitializeMinimalWorkers(w, a)
@@ -931,7 +931,7 @@ THEOREM Spec=>[]ClockInv
 
 \*RevisionNumberInv ==  \A w \in Workers:  workerStatus[w].actor # "-" =>  (workerRev[w].rnum =actorRev[workerStatus[w].actor].rnum =>actorRev[workerStatus[w].actor].ts < workerRev[w].ts)
 
-IInv2 == 
+InductiveInvariant == 
     /\ TypeInvariant 
     /\ MinimalWorkerProperty 
     /\ RevisionNumberInv 
@@ -940,19 +940,19 @@ IInv2 ==
 
 THEOREM Spec => []RevisionNumberInv   
 <1>1. Init => RevisionNumberInv /\ ClockInv   
-     BY  SpecAssumption DEF IInv, TypeInvariant, Init,workerState, ActorState, AllActors, ActorMessage, MinimalWorkerProperty,RevisionNumberInv,ClockInv   
+     BY  SpecAssumption DEF TypeInvariant, Init,workerState, ActorState, AllActors, ActorMessage, MinimalWorkerProperty,RevisionNumberInv,ClockInv   
    
 
-<1>2. IInv /\ MinimalWorkerProperty /\ ClockInv
+<1>2. TypeInvariant /\ MinimalWorkerProperty /\ ClockInv
       /\ RevisionNumberInv /\ [Next]_vars 
       => RevisionNumberInv'/\ ClockInv' 
-  <2> SUFFICES ASSUME IInv,
+  <2> SUFFICES ASSUME TypeInvariant,
                       MinimalWorkerProperty,
                       RevisionNumberInv,
                       [Next]_vars, ClockInv
                PROVE  RevisionNumberInv'/\ ClockInv'
-    BY DEF IInv, MinimalWorkerProperty, RevisionNumberInv
-  <2>.USE SpecAssumption DEF IInv, TypeInvariant, Init, workerState, ActorMessage, ActorState, MinimalWorkerProperty,TotalWorkersRunning, AllActors, CommandMessage, WorkerMessage,RevisionNumberInv,ClockInv       
+    BY DEF TypeInvariant, MinimalWorkerProperty, RevisionNumberInv
+  <2>.USE SpecAssumption DEF TypeInvariant, Init, workerState, ActorMessage, ActorState, MinimalWorkerProperty,TotalWorkersRunning, AllActors, CommandMessage, WorkerMessage,RevisionNumberInv,ClockInv       
   <2>1. ASSUME NEW w \in Workers,
             NEW a \in Actors,
                InitializeMinimalWorkers(w,a)
@@ -1079,7 +1079,7 @@ THEOREM Spec => []RevisionNumberInv
   <2>16. QED
     BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>6,<2>7,<2>8,<2>9,<2>10,<2>14,<2>15,ClockInv,FS_EmptySet,FS_Interval,FS_AddElement, FS_RemoveElement, FS_CardinalityType, FS_Subset DEF Next
 
-<1>. QED  BY <1>1, <1>2, TypeCorrect, SafetyPropertyTheorem, PTL DEF Spec
+<1>. QED  BY <1>1, <1>2, TypeCorrect, MinimalWorkerTheorem, PTL DEF Spec
 
 
    
@@ -1091,5 +1091,5 @@ THEOREM Spec => []RevisionNumberInv
 
 =============================================================================
 \* Modification History
-\* Last modified Sun May 16 14:57:55 CDT 2021 by spadhy
+\* Last modified Mon May 24 00:20:08 CDT 2021 by spadhy
 \* Created Tue Apr 27 09:38:58 CDT 2021 by spadhy
