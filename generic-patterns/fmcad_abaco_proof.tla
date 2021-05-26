@@ -938,7 +938,7 @@ InductiveInvariant ==
     /\ ClockInv   
 
 
-THEOREM Spec => []RevisionNumberInv   
+THEOREM RevisionNumberTheorem==Spec => []RevisionNumberInv   
 <1>1. Init => RevisionNumberInv /\ ClockInv   
      BY  SpecAssumption DEF TypeInvariant, Init,workerState, ActorState, AllActors, ActorMessage, MinimalWorkerProperty,RevisionNumberInv,ClockInv   
    
@@ -1091,5 +1091,5 @@ THEOREM Spec => []RevisionNumberInv
 
 =============================================================================
 \* Modification History
-\* Last modified Mon May 24 00:20:08 CDT 2021 by spadhy
+\* Last modified Wed May 26 10:50:10 CDT 2021 by spadhy
 \* Created Tue Apr 27 09:38:58 CDT 2021 by spadhy
